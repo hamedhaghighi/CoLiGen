@@ -1,0 +1,89 @@
+# This file is covered by the LICENSE file in the root of this project.
+
+#basic params
+
+batch_size: 2
+name: test2
+gpu_ids: [0]
+checkpoints_dir: './checkpoints'
+fast_test: True
+# model params
+
+model: 'pix2pix'
+input_nc: 3
+output_nc: 1
+ngf : 64
+ndf: 64
+netD: 'basic'
+netG: 'unet_256'
+n_layers_D: 3
+norm: 'batch'
+init_type: 'normal'
+lambda_L1: 100
+init_gain: 0.02
+no_dropout: False
+gan_mode: 'vanilla'
+n_epochs: 100
+n_epochs_decay: 100
+lr: 0.0002
+pool_size: 0
+lr_policy: 'linear'
+lr_decay_iters: 50
+beta1: 0.5
+epoch_count : 1
+continue_train: False
+phase: 'train'
+
+# dataset params
+data_dir: /media/oem/Local Disk/Phd-datasets/dataset/
+dataset_mode: 'aligned'
+direction: 'AtoB'
+num_threds: 4
+preprocess: 'resize_and_crop'
+no_flip: False
+display_winsize: 256
+display_id: 1
+display_freq: 2
+print_freq: 2
+no_html: True
+display_port: 8097
+display_ncols: 4
+display_server: "http://localhost"
+update_html_freq: 1000
+display_env: 'main'
+save_latest_freq: 5000
+save_epoch_freq: 5
+
+dataset:
+  labels: "kitti"
+  scans: "kitti"
+  max_points: 150000 # max of any scan in dataset
+  sensor:
+    name: "HDL64"
+    type: "spherical" # projective
+    fov_up: 3
+    fov_down: -25 
+    foh_left: 45
+    foh_right: -45
+    img_prop:
+      width: 256
+      height: 64
+    img_means: #range,x,y,z,signal
+      - 12.12
+      - 10.88
+      - 0.23
+      - -1.04
+      - 0.21
+    img_stds: #range,x,y,z,signal
+      - 12.32
+      - 11.47
+      - 6.91
+      - 0.86
+      - 0.16
+
+# additinal params
+
+epoch: 'latest'
+load_iter: '0'
+verbose: False
+suffix : ''
