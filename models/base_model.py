@@ -84,8 +84,7 @@ class BaseModel(ABC):
         if self.isTrain:
             self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
         if not self.isTrain or opt.continue_train:
-            load_suffix = 'iter_%d' % opt.load_iter if opt.load_iter > 0 else opt.epoch
-            self.load_networks(load_suffix)
+            self.load_networks(opt.epoch)
         self.print_networks(opt.verbose)
 
     def train(self, flag):
@@ -147,17 +146,21 @@ class BaseModel(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
+        save_dict = dict()
+        save_filename = f'{epoch}.pth' if epoch == 'latest' else f'e_{epoch}.pth'
+        save_path = os.path.join(self.save_dir, save_filename)
         for name in self.model_names:
             if isinstance(name, str):
-                save_filename = '%s_net_%s.pth' % (epoch, name)
-                save_path = os.path.join(self.save_dir, save_filename)
                 net = getattr(self, 'net' + name)
-
                 if len(self.gpu_ids) > 0 and torch.cuda.is_available():
-                    torch.save(net.module.cpu().state_dict(), save_path)
-                    net.cuda(self.gpu_ids[0])
+                    save_dict[name] = net.module.state_dict()
                 else:
-                    torch.save(net.cpu().state_dict(), save_path)
+                    save_dict[name] = net.state_dict()
+        for i, o in enumerate(self.optimizers):
+            save_dict[f'optimizer_{i}'] = o.state_dict()
+        for i, s in enumerate(self.schedulers):
+            save_dict[f'scheduler_{i}'] = s.state_dict()
+        torch.save(save_dict, save_path)
 
     def __patch_instance_norm_state_dict(self, state_dict, module, keys, i=0):
         """Fix InstanceNorm checkpoints incompatibility (prior to 0.4)"""
@@ -179,24 +182,31 @@ class BaseModel(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        for name in self.model_names:
-            if isinstance(name, str):
-                load_filename = '%s_net_%s.pth' % (epoch, name)
-                load_path = os.path.join(self.save_dir, load_filename)
-                net = getattr(self, 'net' + name)
-                if isinstance(net, torch.nn.DataParallel):
-                    net = net.module
-                print('loading the model from %s' % load_path)
-                # if you are using PyTorch newer than 0.4 (e.g., built from
-                # GitHub source), you can remove str() on self.device
-                state_dict = torch.load(load_path, map_location=str(self.device))
-                if hasattr(state_dict, '_metadata'):
-                    del state_dict._metadata
+        load_filename = 'latest.pth' if epoch == 'latest' else f'e_{epoch}.pth'
+        load_path = os.path.join(self.save_dir, load_filename)
+        if not os.path.exists(load_path):
+            print(f'cannot find the load path {load_path}')
+            exit(0)
+        else:
+            state_dict = torch.load(load_path)
+            for name in self.model_names:
+                if isinstance(name, str):
+                    net = getattr(self, 'net' + name)
+                    if isinstance(net, torch.nn.DataParallel):
+                        net = net.module
+                    if hasattr(state_dict, '_metadata'):
+                        del state_dict._metadata
 
-                # patch InstanceNorm checkpoints prior to 0.4
-                for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
-                    self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
-                net.load_state_dict(state_dict)
+                    # # patch InstanceNorm checkpoints prior to 0.4
+                    # for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
+                    #     self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
+                    net.load_state_dict(state_dict[name])
+            for i, o in enumerate(self.optimizers):
+                o.load_state_dict(state_dict[f'optimizer_{i}'])
+            for i, s in enumerate(self.schedulers):
+                s.load_state_dict(state_dict[f'scheduler_{i}'])
+            print('loading the model from %s' % load_path)
+
 
     def print_networks(self, verbose):
         """Print the total number of parameters in the network and (if verbose) network architecture

@@ -62,17 +62,18 @@ class Visualizer():
         Step 4: create a logging file to store training losses
         """
         exp_name = os.path.join(opt.checkpoints_dir, opt.name)
-        if os.path.exists(exp_name):
-            reply = ''
-            
-            while not reply.startswith('y') and not reply.startswith('n'):
-                reply = str(input(f'exp_name {exp_name} exists. Do you want to delete it? (y/n): \n')).lower().strip()
-            if reply.startswith('y'):
-                shutil.rmtree(exp_name)
-            else:
-                exit(0)
+        if not opt.continue_train:
+            if os.path.exists(exp_name):
+                reply = ''
+                
+                while not reply.startswith('y') and not reply.startswith('n'):
+                    reply = str(input(f'exp_name {exp_name} exists. Do you want to delete it? (y/n): \n')).lower().strip()
+                if reply.startswith('y'):
+                    shutil.rmtree(exp_name)
+                else:
+                    exit(0)
         self.tb_dir = os.path.join(exp_name +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-        os.makedirs(self.tb_dir, exist_ok=False)
+        os.makedirs(self.tb_dir, exist_ok=True)
         self.writer = SummaryWriter(self.tb_dir)
         self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
         with open(self.log_name, "a") as log_file:

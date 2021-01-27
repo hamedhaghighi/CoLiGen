@@ -47,7 +47,7 @@ class LaserScan:
     self.proj_y = np.zeros((0, 1), dtype=np.int32)        # [m, 1]: y
 
     # mask containing for each pixel, if it contains a point or not
-    self.proj_mask = np.zeros((self.proj_H, self.proj_W),
+    self.proj_mask = np.ones((self.proj_H, self.proj_W),
                               dtype=np.int32)       # [H,W] mask
 
   def size(self):
@@ -178,7 +178,7 @@ class LaserScan:
     self.proj_xyz[proj_y, proj_x] = points
     self.proj_remission[proj_y, proj_x] = remission
     self.proj_idx[proj_y, proj_x] = indices
-    self.proj_mask = (self.proj_idx > 0).astype(np.int32)
+    self.proj_mask = (self.proj_idx >= 0).astype(np.int32)
     
     
 

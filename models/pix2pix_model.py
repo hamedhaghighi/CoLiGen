@@ -63,7 +63,7 @@ class Pix2PixModel(BaseModel):
         if self.isTrain:
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
-            self.criterionL1 = torch.nn.L1Loss()
+            self.criterionL1 = torch.nn.L1Loss(reduction='sum')
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -83,9 +83,11 @@ class Pix2PixModel(BaseModel):
         self.real_B = input['B' if AtoB else 'A'].to(self.device)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
-    def set_input_PCL(self, proj_xyz, proj_remission, proj_range):
+    def set_input_PCL(self, data):
+        proj_xyz , proj_remission, proj_range, proj_mask = data
         self.real_A = proj_xyz.to(self.device)
         self.real_B = proj_remission.to(self.device)
+        self.proj_mask = proj_mask.to(self.device)
         self.range = proj_range
 
     def evaluate_model(self):
@@ -95,7 +97,8 @@ class Pix2PixModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.fake_B = self.netG(self.real_A)  # G(A)
+        self.fake_B = self.netG(self.real_A) * self.proj_mask  # G(A)
+        
 
     def calc_loss_D(self):
         """Calculate GAN loss for the discriminator"""
@@ -117,9 +120,9 @@ class Pix2PixModel(BaseModel):
         pred_fake = self.netD(fake_AB)
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         # Second, G(A) = B
-        self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) * self.opt.lambda_L1
+        self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) / self.proj_mask.sum()
         # combine loss and calculate gradients
-        self.loss_G = self.loss_G_GAN + self.loss_G_L1
+        self.loss_G = self.loss_G_GAN + self.loss_G_L1 * self.opt.lambda_L1
         
 
     def optimize_parameters(self):

@@ -22,7 +22,7 @@ import time
 # from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
-from dataset.Kitti import Kitti_Loader
+from dataset.ProjectedKitti import Kitti_Loader
 import yaml
 import argparse
 import numpy as np
@@ -37,6 +37,7 @@ class M_parser():
         for k , v in opt_dict.items():
             setattr(self, k, v)
         self.isTrain = True
+        self.epoch_decay = self.n_epochs//2
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -48,34 +49,21 @@ if __name__ == '__main__':
     model = create_model(opt)      # create a model given opt.model and other options
     model.setup(opt)               # regular setup: load and print networks; create schedulers
     visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
-    g_steps = 0                # the total number of training iterations
-    KL = Kitti_Loader(root=opt.data_dir,
-                                    train_sequences=DATA["split"]["train"],
-                                    valid_sequences=DATA["split"]["valid"],
-                                    test_sequences=None,
-                                    labels=DATA["labels"],
-                                    color_map=DATA["color_map"],
-                                    learning_map=DATA["learning_map"],
-                                    learning_map_inv=DATA["learning_map_inv"],
-                                    sensor=opt.dataset["sensor"],
-                                    max_points=opt.dataset["max_points"],
-                                    batch_size=opt.batch_size,
-                                    workers= 4,
-                                    gt=True,
-                                    shuffle_train=True)
+    g_steps = 0
+    KL = Kitti_Loader(data_dir=opt.data_dir, batch_size=opt.batch_size, data_stats=opt.dataset['sensor'], val_slpit_ratio=opt.val_split_ratio)
     train_dl = iter(KL.trainloader)
     valid_dl = iter(KL.validloader)
-    dataset_size = len(train_dl) * opt.batch_size
     if opt.fast_test:
-        n_train_batch = 10
-        n_valid_batch = 9
-        opt.n_epochs = 10
-        opt.n_epochs_decay = 0
+        n_train_batch = 2
+        n_valid_batch = 2
+        opt.n_epochs = 2
+        opt.epoch_decay = opt.n_epochs//2
     else:
         n_train_batch = len(train_dl)
         n_valid_batch = len(valid_dl)
-    epoch_tq = tqdm.tqdm(total=opt.n_epochs + opt.n_epochs_decay, desc='Epoch', position=1)
-    for epoch in range(opt.n_epochs + opt.n_epochs_decay):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
+    epoch_tq = tqdm.tqdm(total=opt.n_epochs, desc='Epoch', position=1)
+    start_from_epoch = model.schedulers[0].last_epoch if opt.continue_train else 0 
+    for epoch in range(start_from_epoch, opt.n_epochs):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
         e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
@@ -85,14 +73,10 @@ if __name__ == '__main__':
         train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
         for i in range(n_train_batch):  # inner loop within one epoch
             data = next(train_dl)
-            proj_xyz , proj_remission, proj_range = data
             iter_start_time = time.time()  # timer for computation per iteration
-            if g_steps % opt.print_freq == 0:
-                t_data = iter_start_time - iter_data_time
-
             g_steps += 1
             e_steps += 1
-            model.set_input_PCL(proj_xyz, proj_remission, proj_range)         # unpack data from dataset and apply preprocessing
+            model.set_input_PCL(data)         # unpack data from dataset and apply preprocessing
             model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
             if g_steps % opt.display_freq == 0:   # display images on visdom and save images to a HTML file
@@ -100,7 +84,6 @@ if __name__ == '__main__':
 
             if g_steps % opt.print_freq == 0:    # print training losses and save logging information to the disk
                 losses = model.get_current_losses()
-                t_comp = (time.time() - iter_start_time) / opt.batch_size
                 visualizer.print_current_losses('train', epoch, e_steps, losses, train_tq)
                 visualizer.plot_current_losses('train', epoch, losses, g_steps)
 
@@ -108,16 +91,13 @@ if __name__ == '__main__':
                 train_tq.write('saving the latest model (epoch %d, total_iters %d)' % (epoch, g_steps))
                 save_suffix = 'latest'
                 model.save_networks(save_suffix)
-
-            iter_data_time = time.time()
             train_tq.update(1)
         val_losses = defaultdict(list)
         model.train(False)
         val_tq = tqdm.tqdm(total=n_valid_batch, desc='val_Iter', position=5)
         for i in range(n_valid_batch):
             data = next(valid_dl)
-            proj_xyz, proj_remission, proj_range = data
-            model.set_input_PCL(proj_xyz, proj_remission, proj_range)
+            model.set_input_PCL(data)
             with torch.no_grad():
                 model.evaluate_model()
             for k ,v in model.get_current_losses().items():
@@ -134,4 +114,4 @@ if __name__ == '__main__':
             model.save_networks(epoch)
         epoch_tq.update(1)
 
-        print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.n_epochs_decay, time.time() - epoch_start_time))
+        print('End of epoch %d \t Time Taken: %d sec' % (epoch, time.time() - epoch_start_time))
