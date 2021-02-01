@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from torch.utils.data import Subset
 from .laserscan import LaserScan, SemLaserScan
 import torch.nn.functional as F
 from torchvision import transforms
@@ -11,9 +12,9 @@ import glob
 
 
 
-class SemanticProjectedKitti(Dataset):
+class UnaryScan(Dataset):
 
-  def __init__(self, data_dir, data_stats, val_split_ratio, is_train_data=True):
+  def __init__(self, data_dir, data_stats):
     # save deats
     self.data_dir = data_dir
     self.data_stats = data_stats
@@ -29,10 +30,7 @@ class SemanticProjectedKitti(Dataset):
     
     self.scan_file_names = glob.glob(data_dir + '/*')
     self.scan_file_names.sort()
-    total_samples = len(self.scan_file_names)
-    train_indcs = list(range(total_samples))[int(val_split_ratio*total_samples):]
-    val_indcs = list(range(total_samples))[:int(val_split_ratio*total_samples)]
-    self.scan_file_names = [self.scan_file_names[i] for i in (train_indcs if is_train_data else val_indcs)]
+    
 
   def __getitem__(self, index):
     # get item in tensor shape
@@ -54,10 +52,32 @@ class SemanticProjectedKitti(Dataset):
     proj_range = torch.from_numpy(proj[3:4]).clone() * proj_mask
     proj_remission = torch.from_numpy(proj[4:5]).clone() * proj_mask
     
-    return proj_xyz , proj_remission, proj_range, proj_mask
+    return proj_xyz , proj_range, proj_remission, proj_mask
 
   def __len__(self):
     return len(self.scan_file_names)
+
+class BinaryScan(Dataset):
+
+  def __init__(self, data_dirA, data_statsA, data_dirB, data_statsB):
+    # save deats
+    self.datasetA = UnaryScan(data_dirA, data_statsA)
+    self.datasetB = UnaryScan(data_dirB, data_statsB)
+    # get number of classes (can't be len(self.learning_map) because there
+    # are multiple repeated entries, so the number that matters is how many
+    # there are for the xentropy)
+    # sanity checks
+    # make sure directory exists 
+    self.sizeA = len(data_statsA)
+    self.sizeB = len(data_statsB)
+    
+  def __getitem__(self, index):
+    index_A = index % self.sizeA
+    index_B = np.random.randint(0, self.sizeB)
+    return {'A': self.datasetA[index_A], 'B': self.datasetB[index_B]}
+
+  def __len__(self):
+    return max(self.sizeA, self.sizeB)
 
   @staticmethod
   def map(label, mapdict):
@@ -86,24 +106,28 @@ class SemanticProjectedKitti(Dataset):
     return lut[label]
 
 
-class Kitti_Loader():
+class Loader():
   # standard conv, BN, relu
   def __init__(self,
-               data_dir,              # directory for data
+               data_dict,              # directory for data
                batch_size,        # batch size for train and val
-               data_stats,
-               val_slpit_ratio,
+               val_split_ratio,
                workers=4,           # threads to load data
                gt=True,           # get gt?
                shuffle_train=True):  # shuffle training set?
-    super(Kitti_Loader, self).__init__()
-
-    
 
     # number of classes that matters is the one for xentropy
-    train_dataset = SemanticProjectedKitti(data_dir, data_stats, val_slpit_ratio)
-    val_dataset = SemanticProjectedKitti(data_dir, data_stats, val_slpit_ratio, False)
-    
+    if len(data_dict.keys()) == 2:
+      data_dirA, data_dirB = data_dict['dataset_A']['data_dir'], data_dict['dataset_B']['data_dir']
+      data_statsA, data_statsB = data_dict['dataset_A']['sensor'], data_dict['dataset_B']['sensor']
+      total_dataset = BinaryScan(data_dirA, data_statsA, data_dirB, data_statsB)
+    else:
+      total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'])
+    total_samples = len(total_dataset)
+    train_indcs = list(range(total_samples))[int(val_split_ratio*total_samples):]
+    val_indcs = list(range(total_samples))[:int(val_split_ratio*total_samples)]
+    train_dataset = Subset(total_dataset, train_indcs)
+    val_dataset = Subset(total_dataset, val_indcs)
     self.trainloader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=batch_size,
                                                    shuffle=shuffle_train,

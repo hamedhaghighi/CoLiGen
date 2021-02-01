@@ -46,7 +46,7 @@ class Pix2PixModel(BaseModel):
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['fake_B', 'real_B', 'range']
+        self.visual_names = ['fake_B', 'real_B', 'range', 'real_A']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
             self.model_names = ['G', 'D']
@@ -84,7 +84,7 @@ class Pix2PixModel(BaseModel):
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def set_input_PCL(self, data):
-        proj_xyz , proj_remission, proj_range, proj_mask = data
+        proj_xyz , proj_range, proj_remission, proj_mask = data
         self.real_A = proj_xyz.to(self.device)
         self.real_B = proj_remission.to(self.device)
         self.proj_mask = proj_mask.to(self.device)

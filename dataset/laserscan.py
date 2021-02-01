@@ -7,7 +7,7 @@ class LaserScan:
   """Class that contains LaserScan with x,y,z,r"""
   EXTENSIONS_SCAN = ['.bin']
 
-  def __init__(self, project=False, H=64, W=1024, fov_up=3.0, fov_down=-25.0, foh_left=180, foh_right=-180):
+  def __init__(self, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45):
     self.project = project
     self.proj_H = H
     self.proj_W = W
@@ -184,9 +184,9 @@ class LaserScan:
 
 class SemLaserScan(LaserScan):
   """Class that contains LaserScan with x,y,z,r,sem_label,sem_color_label,inst_label,inst_color_label"""
-  EXTENSIONS_LABEL = ['.label']
+  EXTENSIONS_LABEL = ['.label', 'bin']
 
-  def __init__(self,  sem_color_dict=None, project=False, H=64, W=512, fov_up=3.0, fov_down=-25.0, foh_left=180, foh_right=-180, max_classes=300):
+  def __init__(self,  sem_color_dict=None, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45, max_classes=300):
     super(SemLaserScan, self).__init__(project, H, W, fov_up, fov_down, foh_left, foh_right)
     self.reset()
 
@@ -255,7 +255,6 @@ class SemLaserScan(LaserScan):
     # if all goes well, open label
     label = np.fromfile(filename, dtype=np.int32)
     label = label.reshape((-1))[self.foh_mask]
-
     # set it
     self.set_label(label)
 

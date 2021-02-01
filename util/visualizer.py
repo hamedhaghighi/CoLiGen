@@ -8,6 +8,8 @@ import shutil
 from . import util, html
 from subprocess import Popen, PIPE
 from torch.utils.tensorboard import SummaryWriter
+from matplotlib import pyplot as plt
+
 
 if sys.version_info[0] == 2:
     VisdomExceptionBase = Exception
@@ -93,7 +95,12 @@ class Visualizer():
             save_result (bool) - - if save the current results to an HTML file
         """
         for k , img in visuals.items():
-            self.writer.add_images(phase + '/' + k, img[:4]*0.5 + 0.5, g_step)
+            for j in range(img.shape[1]):
+                fig = plt.figure()
+                for i in range(min(2, img.shape[0])):
+                    plt.subplot(1, 2, i+1)
+                    plt.imshow((img[i][j]*0.5 + 0.5).cpu().detach().numpy(), cmap='inferno' if k == 'range' else 'cividis')
+                self.writer.add_figure(phase + '/' + k + str(j), fig, g_step, True)
 
     def plot_current_losses(self, phase, epoch, losses, g_step):
         """display the current losses on visdom display: dictionary of error labels and values

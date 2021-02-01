@@ -9,7 +9,7 @@ import yaml
 import cv2
 
 EXTENSIONS_SCAN = ['.bin']
-EXTENSIONS_LABEL = ['.label']
+EXTENSIONS_LABEL = ['.label', '.bin']
 
 
 def is_scan(filename):
@@ -375,9 +375,9 @@ class Kitti_Loader():
 
 if __name__ == "__main__":
     total_data_len = 5000
-    seqs_list = list(np.arange(11))
+    seqs_list = list(np.arange(1))
     even_n_samples = total_data_len// len(seqs_list)
-    data_dir = '/media/oem/Local Disk/Phd-datasets/dataset/sequences'
+    data_dir = '/media/oem/Local Disk/Phd-datasets/GTA_Lidar_selected/sequences'
     cfg = yaml.safe_load(open('../configs/semantic-kitti.yaml', 'r'))
     scan_files_list = []
     label_files_list = []
@@ -399,8 +399,9 @@ if __name__ == "__main__":
       scan_files.sort()
       label_files.sort()
       assert(len(scan_files) == len(label_files))
-      n_sample = min(len(scan_files), even_n_samples)
-      rand_ind = np.random.choice(len(scan_files) , n_sample, replace=False)
+      # n_sample = min(len(scan_files), even_n_samples)
+      # rand_ind = np.random.choice(len(scan_files) , n_sample, replace=False)
+      rand_ind = np.arange(len(scan_files))
       scan_files_list.extend([scan_files[i] for i in rand_ind])
       label_files_list.extend([label_files[i] for i in rand_ind])
     # sort for correspondance
@@ -419,7 +420,7 @@ if __name__ == "__main__":
     # open and obtain scan
     from tqdm import trange
     import tqdm
-    dest_dir = '/media/oem/Local Disk/Phd-datasets/projected_kitti'
+    dest_dir = '/media/oem/Local Disk/Phd-datasets/GTA_Lidar_selected_projected'
     x = [0.0 for i in range(5)]
     x2 = [0.0 for i in range(5)]
     num = 0
@@ -439,6 +440,8 @@ if __name__ == "__main__":
       np.save(os.path.join(dest_dir, filename), proj)
       num += (proj_mask == 1.0).sum()
       for i in range(5):
+        if i == 4:
+          break
         x[i] += (proj[i:i+1][proj_mask == 1.0]).sum()
         x2[i] += ((proj[i :i+1]**2)[proj_mask == 1.0]).sum()
         min_max[i][0] = min(min_max[i][0], (proj[i:i+1][proj_mask == 1.0]).min())
