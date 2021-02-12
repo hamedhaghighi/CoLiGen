@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 import yaml
 import cv2
+import argparse
 
 EXTENSIONS_SCAN = ['.bin']
 EXTENSIONS_LABEL = ['.label', '.bin']
@@ -374,84 +375,100 @@ class Kitti_Loader():
 
 
 if __name__ == "__main__":
-    total_data_len = 5000
-    seqs_list = list(np.arange(1))
-    even_n_samples = total_data_len// len(seqs_list)
-    data_dir = '/media/oem/Local Disk/Phd-datasets/GTA_Lidar_selected/sequences'
-    cfg = yaml.safe_load(open('../configs/semantic-kitti.yaml', 'r'))
-    scan_files_list = []
-    label_files_list = []
-    for seq in seqs_list:
-      # to string
-      seq = '{0:02d}'.format(int(seq))
+  parser = argparse.ArgumentParser("./kitti.py")
+  parser.add_argument(
+      '--have_rgb', '-r',
+      dest='have_rgb',
+      default=False,
+      action='store_true',
+      help='Ignore semantics. Visualizes uncolored pointclouds.'
+      'Defaults to %(default)s',
+  )
+  FLAGS, unparsed = parser.parse_known_args()
+  have_rgb = FLAGS.have_rgb
 
-      print("parsing seq {}".format(seq))
+  total_data_len = 20
+  seqs_list = list(np.arange(11))
+  even_n_samples = total_data_len// len(seqs_list)
+  data_dir = '/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb/sequences'
+  cfg = yaml.safe_load(open('../configs/semantic-kitti.yaml', 'r'))
+  scan_files_list = []
+  label_files_list = []
+  for seq in seqs_list:
+    # to string
+    seq = '{0:02d}'.format(int(seq))
 
-      # get paths for each
-      scan_path = os.path.join(data_dir, seq, "velodyne")
-      label_path = os.path.join(data_dir, seq, "labels")
-      # get files
+    print("parsing seq {}".format(seq))
 
-      scan_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
-          os.path.expanduser(scan_path)) for f in fn if is_scan(f)]
-      label_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
-          os.path.expanduser(label_path)) for f in fn if is_label(f)]
-      scan_files.sort()
-      label_files.sort()
-      assert(len(scan_files) == len(label_files))
-      # n_sample = min(len(scan_files), even_n_samples)
-      # rand_ind = np.random.choice(len(scan_files) , n_sample, replace=False)
-      rand_ind = np.arange(len(scan_files))
-      scan_files_list.extend([scan_files[i] for i in rand_ind])
-      label_files_list.extend([label_files[i] for i in rand_ind])
-    # sort for correspondance
-    scan_files_list.sort()
-    label_files_list.sort()
+    # get paths for each
+    scan_path = os.path.join(data_dir, seq, "velodyne")
+    label_path = os.path.join(data_dir, seq, "labels")
+    # get files
 
-    scan = SemLaserScan(cfg['color_map'],
-                        project=True,
-                        H=cfg['sensor']['img_prop']['height'],
-                        W=cfg['sensor']['img_prop']['width'],
-                        fov_up=cfg['sensor']['fov_up'],
-                        fov_down=cfg['sensor']['fov_down'],
-                        foh_left=cfg['sensor']['foh_left'],
-                        foh_right=cfg['sensor']['foh_right'])
+    scan_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
+        os.path.expanduser(scan_path)) for f in fn if is_scan(f)]
+    label_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
+        os.path.expanduser(label_path)) for f in fn if is_label(f)]
+    scan_files.sort()
+    label_files.sort()
+    assert(len(scan_files) == len(label_files))
+    # n_sample = min(len(scan_files), even_n_samples)
+    # rand_ind = np.random.choice(len(scan_files) , n_sample, replace=False)
+    rand_ind = np.arange(len(scan_files))
+    scan_files_list.extend([scan_files[i] for i in rand_ind])
+    label_files_list.extend([label_files[i] for i in rand_ind])
+  # sort for correspondance
+  scan_files_list.sort()
+  label_files_list.sort()
 
-    # open and obtain scan
-    from tqdm import trange
-    import tqdm
-    dest_dir = '/media/oem/Local Disk/Phd-datasets/GTA_Lidar_selected_projected'
-    x = [0.0 for i in range(5)]
-    x2 = [0.0 for i in range(5)]
-    num = 0
-    min_max = [[np.inf, -np.inf] for i in range(5)]
-    for scan_path , label_path in tqdm.tqdm(zip(scan_files_list, label_files_list), total=len(scan_files_list)):
-      scan.open_scan(scan_path)
-      scan.open_label(label_path)
-      proj_range = np.expand_dims(np.copy(scan.proj_range), axis=0)
-      proj_xyz = np.transpose(np.copy(scan.proj_xyz), (2, 0, 1))
-      proj_remission = np.expand_dims(np.copy(scan.proj_remission), axis=0)
-      proj_mask = np.expand_dims(np.array(scan.proj_mask, dtype=np.float32), axis=0)
-      proj_sem_label = np.expand_dims(np.array(scan.proj_sem_label, dtype=np.float32), axis=0)
-      proj_inst_label = np.expand_dims(np.array(scan.proj_inst_label, dtype=np.float32), axis=0)
+  scan = SemLaserScan(cfg['color_map'],
+                      project=True,
+                      H=cfg['sensor']['img_prop']['height'],
+                      W=cfg['sensor']['img_prop']['width'],
+                      fov_up=cfg['sensor']['fov_up'],
+                      fov_down=cfg['sensor']['fov_down'],
+                      foh_left=cfg['sensor']['foh_left'],
+                      foh_right=cfg['sensor']['foh_right'], have_rgb=have_rgb)
+
+  # open and obtain scan
+  from tqdm import trange
+  import tqdm
+  dest_dir = '/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb_projected'
+  x = [0.0 for i in range(5)]
+  x2 = [0.0 for i in range(5)]
+  num = 0
+  min_max = [[np.inf, -np.inf] for i in range(5)]
+  for scan_path , label_path in tqdm.tqdm(zip(scan_files_list, label_files_list), total=len(scan_files_list)):
+    scan.open_scan(scan_path)
+    scan.open_label(label_path)
+    proj_range = np.expand_dims(np.copy(scan.proj_range), axis=0)
+    proj_xyz = np.transpose(np.copy(scan.proj_xyz), (2, 0, 1))
+    proj_remission = np.expand_dims(np.copy(scan.proj_remission), axis=0)
+    proj_rgb = np.transpose(scan.proj_points_rgb, (2, 0, 1)).astype('float32') if have_rgb else None
+    proj_mask = np.expand_dims(np.array(scan.proj_mask, dtype=np.float32), axis=0)
+    proj_sem_label = np.expand_dims(np.array(scan.proj_sem_label, dtype=np.float32), axis=0)
+    proj_inst_label = np.expand_dims(np.array(scan.proj_inst_label, dtype=np.float32), axis=0)
+    if proj_rgb is not None:
+      proj = np.concatenate([proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_sem_label, proj_inst_label])
+    else:
       proj = np.concatenate([proj_xyz, proj_range, proj_remission, proj_mask, proj_sem_label, proj_inst_label])
-      splited = scan_path.split('/')
-      filename = 'seq_' + splited[-3] + '_velodyne_' + splited[-1].split('.')[0] + '.npy'
-      np.save(os.path.join(dest_dir, filename), proj)
-      num += (proj_mask == 1.0).sum()
-      for i in range(5):
-        if i == 4:
-          break
-        x[i] += (proj[i:i+1][proj_mask == 1.0]).sum()
-        x2[i] += ((proj[i :i+1]**2)[proj_mask == 1.0]).sum()
-        min_max[i][0] = min(min_max[i][0], (proj[i:i+1][proj_mask == 1.0]).min())
-        min_max[i][1] = max(min_max[i][1], (proj[i:i+1][proj_mask == 1.0]).max())
+    splited = scan_path.split('/')
+    filename = 'seq_' + splited[-3] + '_velodyne_' + splited[-1].split('.')[0] + '.npy'
+    np.save(os.path.join(dest_dir, filename), proj)
+    num += (proj_mask == 1.0).sum()
+    for i in range(5):
+      if i == 4:
+        break
+      x[i] += (proj[i:i+1][proj_mask == 1.0]).sum()
+      x2[i] += ((proj[i :i+1]**2)[proj_mask == 1.0]).sum()
+      min_max[i][0] = min(min_max[i][0], (proj[i:i+1][proj_mask == 1.0]).min())
+      min_max[i][1] = max(min_max[i][1], (proj[i:i+1][proj_mask == 1.0]).max())
 
-    mu = [x[i]/num for i in range(len(x))]
-    sig = [np.sqrt(x2[i]/num - mu[i]**2) for i in range(len(x))]
-    print(mu, '\n')
-    print(sig, '\n')
-    print(min_max)
+  mu = [x[i]/num for i in range(len(x))]
+  sig = [np.sqrt(x2[i]/num - mu[i]**2) for i in range(len(x))]
+  print(mu, '\n')
+  print(sig, '\n')
+  print(min_max)
 
 
 

@@ -84,8 +84,12 @@ class Pix2PixModel(BaseModel):
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def set_input_PCL(self, data):
-        proj_xyz , proj_range, proj_remission, proj_mask = data
-        self.real_A = proj_xyz.to(self.device)
+        proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb = data
+        if proj_rgb is None:
+            self.real_A = proj_xyz.to(self.device)
+        else:
+            # shape B, C, H , W
+            self.real_A = torch.cat([proj_xyz, proj_rgb], dim=1).to(self.device)
         self.real_B = proj_remission.to(self.device)
         self.proj_mask = proj_mask.to(self.device)
         self.range = proj_range

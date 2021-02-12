@@ -50,6 +50,14 @@ if __name__ == '__main__':
       'Defaults to %(default)s',
   )
   parser.add_argument(
+      '--have_rgb', '-r',
+      dest='have_rgb',
+      default=False,
+      action='store_true',
+      help='Ignore semantics. Visualizes uncolored pointclouds.'
+      'Defaults to %(default)s',
+  )
+  parser.add_argument(
       '--offset',
       type=int,
       default=0,
@@ -67,7 +75,6 @@ if __name__ == '__main__':
       'Defaults to %(default)s',
   )
   FLAGS, unparsed = parser.parse_known_args()
-
   # print summary of what we will do
   print("*" * 80)
   print("INTERFACE:")
@@ -131,10 +138,10 @@ if __name__ == '__main__':
 
   # create a scan
   if FLAGS.ignore_semantics:
-    scan = LaserScan(project=True)  # project all opened scans to spheric proj
+    scan = LaserScan(project=True, have_rgb=FLAGS.have_rgb)  # project all opened scans to spheric proj
   else:
     color_dict = CFG["color_map"]
-    scan = SemLaserScan(color_dict, project=True)
+    scan = SemLaserScan(color_dict, project=True, have_rgb=FLAGS.have_rgb)
   # create a visualizer
   semantics = not FLAGS.ignore_semantics
   if not semantics:
@@ -144,7 +151,8 @@ if __name__ == '__main__':
                      label_names=label_names,
                      offset=FLAGS.offset,
                      semantics=semantics,
-                     instances=False)
+                     instances=False
+                     )
 
   # print instructions
   print("To navigate:")

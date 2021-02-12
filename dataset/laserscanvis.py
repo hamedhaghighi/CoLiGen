@@ -12,13 +12,14 @@ class LaserScanVis:
   """Class that creates and handles a visualizer for a pointcloud"""
 
   def __init__(self, scan, scan_names, label_names, offset=0,
-               semantics=True, instances=False):
+               semantics=True, instances=False, have_rgb=False):
     self.scan = scan
     self.scan_names = scan_names
     self.label_names = label_names
     self.offset = offset
     self.semantics = semantics
     self.instances = instances
+    self.have_rgb = have_rgb
     # sanity check
     if not self.semantics and self.instances:
       print("Instances are only allowed in when semantics=True")
@@ -42,8 +43,7 @@ class LaserScanVis:
     self.grid = self.canvas.central_widget.add_grid()
 
     # laserscan part
-    self.scan_view = vispy.scene.widgets.ViewBox(
-        border_color='white', parent=self.canvas.scene)
+    self.scan_view = vispy.scene.widgets.ViewBox(border_color='white', parent=self.canvas.scene)
     self.grid.add_widget(self.scan_view, 0, 0)
     self.scan_vis = visuals.Markers()
     self.scan_view.camera = 'turntable'
@@ -93,29 +93,46 @@ class LaserScanVis:
     # add a view for the depth
     self.img_view = vispy.scene.widgets.ViewBox(
         border_color='white', parent=self.img_canvas.scene)
-    self.img_grid.add_widget(self.img_view, 0, 0)
+    b1 = self.img_grid.add_widget(self.img_view, 0, 0)
+    b1.camera = vispy.scene.PanZoomCamera(rect=(0, 0, self.canvas_W , self.canvas_H), flip=(False,True), aspect=1.0)
     self.img_vis = visuals.Image(cmap='viridis')
     self.img_view.add(self.img_vis)
+
+    # view for intensity
     self.int_view = vispy.scene.widgets.ViewBox(
         border_color='white', parent=self.img_canvas.scene)
-    self.img_grid.add_widget(self.int_view, 0, 1)
+    b1= self.img_grid.add_widget(self.int_view, 0, 1)
+    b1.camera = vispy.scene.PanZoomCamera(
+        rect=(0, 0, self.canvas_W, self.canvas_H), flip=(False, True), aspect=1.0)
     self.int_vis = visuals.Image(cmap='viridis')
     self.int_view.add(self.int_vis)
+
     # add semantics
     if self.semantics:
       self.sem_img_view = vispy.scene.widgets.ViewBox(
           border_color='white', parent=self.img_canvas.scene)
-      self.img_grid.add_widget(self.sem_img_view, 1, 0)
+      b1 = self.img_grid.add_widget(self.sem_img_view, 1, 0)
+      b1.camera = vispy.scene.PanZoomCamera(rect=(0, 0, self.canvas_W , self.canvas_H), flip=(False,True), aspect=1.0)
       self.sem_img_vis = visuals.Image(cmap='viridis')
       self.sem_img_view.add(self.sem_img_vis)
 
-    # add instances
-    if self.instances:
-      self.inst_img_view = vispy.scene.widgets.ViewBox(
+    if self.scan.have_rgb:
+      self.rgb_img_view = vispy.scene.widgets.ViewBox(
           border_color='white', parent=self.img_canvas.scene)
-      self.img_grid.add_widget(self.inst_img_view, 2, 0)
-      self.inst_img_vis = visuals.Image(cmap='viridis')
-      self.inst_img_view.add(self.inst_img_vis)
+      b1 = self.img_grid.add_widget(self.rgb_img_view, 1, 1)
+      b1.camera = vispy.scene.PanZoomCamera(rect=(0, 0, self.canvas_W , self.canvas_H), flip=(False,True), aspect=1.0)
+      self.rgb_img_vis = visuals.Image()
+      self.rgb_img_view.add(self.rgb_img_vis)
+
+
+    # add instances
+    # if self.instances:
+    #   self.inst_img_view = vispy.scene.widgets.ViewBox(
+    #       border_color='white', parent=self.img_canvas.scene)
+    #   self.img_grid.add_widget(self.inst_img_view, 2, 0)
+    #   self.inst_img_vis = visuals.Image(cmap='viridis')
+    #   self.inst_img_view.add(self.inst_img_vis)
+    # add pcloud RGB
 
   def get_mpl_colormap(self, cmap_name):
     cmap = plt.get_cmap(cmap_name)
@@ -187,7 +204,7 @@ class LaserScanVis:
     self.img_vis.update()
     ints = np.copy(self.scan.proj_remission)
     ints = (ints - ints.min())/(ints.max() - ints.min())
-    # ints = np.random.randint(0 , 1, size=ints.shape)
+
     self.int_vis.set_data(ints)
     self.int_vis.update()
 
@@ -195,9 +212,15 @@ class LaserScanVis:
       self.sem_img_vis.set_data(self.scan.proj_sem_color[..., ::-1])
       self.sem_img_vis.update()
 
-    if self.instances:
-      self.inst_img_vis.set_data(self.scan.proj_inst_color[..., ::-1])
-      self.inst_img_vis.update()
+    if self.scan.have_rgb:
+      self.rgb_img_vis.set_data(self.scan.proj_points_rgb)
+      self.rgb_img_vis.update()
+
+
+    # if self.instances:
+    #   self.inst_img_vis.set_data(self.scan.proj_inst_color[..., ::-1])
+    #   self.inst_img_vis.update()
+
 
   # interface
   def key_press(self, event):

@@ -64,6 +64,8 @@ if __name__ == '__main__':
     epoch_tq = tqdm.tqdm(total=opt.n_epochs, desc='Epoch', position=1)
     start_from_epoch = model.schedulers[0].last_epoch if opt.continue_train else 0 
     #### Train & Validation Loop
+    opt.n_epochs = 2 if opt.fast_test else opt.n_epochs
+    
     for epoch in range(start_from_epoch, opt.n_epochs):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
@@ -74,7 +76,6 @@ if __name__ == '__main__':
         valid_dl = iter(KL.validloader)
         n_train_batch = 2 if opt.fast_test else len(train_dl)
         n_valid_batch = 2 if opt.fast_test else len(valid_dl)
-        opt.n_epochs = 2 if opt.fast_test else opt.n_epochs
         opt.epoch_decay = opt.n_epochs//2 if opt.fast_test else opt.epoch_decay
         train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
         for i in range(n_train_batch):  # inner loop within one epoch

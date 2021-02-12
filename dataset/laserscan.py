@@ -7,7 +7,7 @@ class LaserScan:
   """Class that contains LaserScan with x,y,z,r"""
   EXTENSIONS_SCAN = ['.bin']
 
-  def __init__(self, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45):
+  def __init__(self, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45, have_rgb=False):
     self.project = project
     self.proj_H = H
     self.proj_W = W
@@ -15,6 +15,7 @@ class LaserScan:
     self.proj_fov_down = fov_down
     self.proj_foh_left = foh_left
     self.proj_foh_right = foh_right
+    self.have_rgb = have_rgb
     self.reset()
 
   def reset(self):
@@ -36,7 +37,8 @@ class LaserScan:
     # projected remission - [H,W] intensity (-1 is no data)
     self.proj_remission = np.full((self.proj_H, self.proj_W), -1,
                                   dtype=np.float32)
-
+    self.proj_points_rgb = np.full((self.proj_H, self.proj_W, 3), 0,
+                                   dtype=np.uint8) if self.have_rgb else None
     # projected index (for each pixel, what I am in the pointcloud)
     # [H,W] index (-1 is no data)
     self.proj_idx = np.full((self.proj_H, self.proj_W), -1,
@@ -74,11 +76,13 @@ class LaserScan:
 
     # if all goes well, open pointcloud
     scan = np.fromfile(filename, dtype=np.float32)
-    scan = scan.reshape((-1, 4))
+    channels = 7 if self.have_rgb else 4
+    scan = scan.reshape((-1, channels))
 
     # put in attribute
     points = scan[:, 0:3]    # get xyz
     remissions = scan[:, 3]  # get remission
+    self.points_rgb = scan[:, 4:].astype('uint8') if self.have_rgb else None
     self.set_points(points, remissions)
 
   def set_points(self, points, remissions=None):
@@ -140,6 +144,8 @@ class LaserScan:
     self.foh_mask = mask
     self.points = self.points[mask]
     self.remissions = self.remissions[mask]
+    if self.points_rgb is not None:
+      self.points_rgb = self.points_rgb[mask]
     depth = depth[mask]
     proj_x = proj_x[mask]
     proj_y = proj_y[mask]
@@ -170,6 +176,8 @@ class LaserScan:
     indices = indices[order]
     points = self.points[order]
     remission = self.remissions[order]
+  
+    points_rgb = self.points_rgb[order] if self.points_rgb is not None else None
     proj_y = proj_y[order]
     proj_x = proj_x[order]
 
@@ -177,6 +185,8 @@ class LaserScan:
     self.proj_range[proj_y, proj_x] = depth
     self.proj_xyz[proj_y, proj_x] = points
     self.proj_remission[proj_y, proj_x] = remission
+    if points_rgb is not None:
+      self.proj_points_rgb[proj_y, proj_x] = points_rgb
     self.proj_idx[proj_y, proj_x] = indices
     self.proj_mask = (self.proj_idx >= 0).astype(np.int32)
     
@@ -186,8 +196,8 @@ class SemLaserScan(LaserScan):
   """Class that contains LaserScan with x,y,z,r,sem_label,sem_color_label,inst_label,inst_color_label"""
   EXTENSIONS_LABEL = ['.label', 'bin']
 
-  def __init__(self,  sem_color_dict=None, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45, max_classes=300):
-    super(SemLaserScan, self).__init__(project, H, W, fov_up, fov_down, foh_left, foh_right)
+  def __init__(self,  sem_color_dict=None, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45, max_classes=300, have_rgb=False):
+    super(SemLaserScan, self).__init__(project, H, W, fov_up, fov_down, foh_left, foh_right, have_rgb)
     self.reset()
 
     # make semantic colors

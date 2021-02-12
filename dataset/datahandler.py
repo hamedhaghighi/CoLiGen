@@ -45,14 +45,14 @@ class UnaryScan(Dataset):
     Max = np.array(self.data_stats['img_max'])[:, None, None]
     proj[:5] = (proj[:5] - Min)/(Max - Min)
     proj[:5] = (proj[:5] - 0.5)/0.5
-
+    proj[6:9] = proj[6:9] / 127.5 - 1.0
     proj = np.repeat(proj, 4 , axis= 1)
     proj_mask = torch.from_numpy(proj[5:6]).clone()
     proj_xyz = torch.from_numpy(proj[:3]).clone() * proj_mask
     proj_range = torch.from_numpy(proj[3:4]).clone() * proj_mask
     proj_remission = torch.from_numpy(proj[4:5]).clone() * proj_mask
-    
-    return proj_xyz , proj_range, proj_remission, proj_mask
+    proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask if self.data_stats['have_rgb'] else None
+    return proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb
 
   def __len__(self):
     return len(self.scan_file_names)

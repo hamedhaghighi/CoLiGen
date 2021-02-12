@@ -20,9 +20,12 @@ verbose: False
 suffix : ''
 val_split_ratio: 0.2
 seed: 10
+
+
+
 # model params
 model: 'pix2pix'
-input_nc: 3
+input_nc: 6
 output_nc: 1
 ngf : 64
 ndf: 64
@@ -41,14 +44,13 @@ beta1: 0.5
 
 
 # dataset params
-
-
 dataset:
   dataset_A:
-    data_dir: '/media/oem/Local Disk/Phd-datasets/projected_kitti'
+    data_dir: '/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb_projected'
     sensor:
       name: "HDL64"
       type: "spherical" # projective
+      have_rgb: True
       fov_up: 3
       fov_down: -25 
       foh_left: 45
