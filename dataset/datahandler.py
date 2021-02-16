@@ -43,11 +43,16 @@ class UnaryScan(Dataset):
       # scan.proj_sem_label = self.map(scan.proj_sem_label, self.learning_map)
       # proj_labels = proj_labels * proj_mask 
    
-    Min = np.array(self.data_stats['img_min'])[:, None, None]
-    Max = np.array(self.data_stats['img_max'])[:, None, None]
+    # Min = np.array(self.data_stats['img_min'])[:, None, None]
+    # Max = np.array(self.data_stats['img_max'])[:, None, None]
+    Min = proj[:5].min((1, 2))[:, None, None]
+    Max = proj[:5].max((1, 2))[:, None, None]
+
     proj[:5] = (proj[:5] - Min)/(Max - Min)
     proj[:5] = (proj[:5] - 0.5)/0.5
-    proj[6:9] = proj[6:9] / 127.5 - 1.0
+    
+    if self.data_stats['have_rgb']:
+      proj[6:9] = proj[6:9] / 127.5 - 1.0
     proj = np.repeat(proj, 4 , axis= 1)
     proj_mask = torch.from_numpy(proj[5:6]).clone()
     proj_xyz = torch.from_numpy(proj[:3]).clone() * proj_mask
