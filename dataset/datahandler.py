@@ -14,7 +14,7 @@ import glob
 
 class UnaryScan(Dataset):
 
-  def __init__(self, data_dir, data_stats):
+  def __init__(self, data_dir, data_stats, max_dataset_size=-1):
     # save deats
     self.data_dir = data_dir
     self.data_stats = data_stats
@@ -30,7 +30,9 @@ class UnaryScan(Dataset):
     
     self.scan_file_names = glob.glob(data_dir + '/*')
     self.scan_file_names.sort()
-    
+
+    if max_dataset_size != -1:
+      self.scan_file_names = self.scan_file_names[:max_dataset_size]
 
   def __getitem__(self, index):
     # get item in tensor shape
@@ -59,10 +61,10 @@ class UnaryScan(Dataset):
 
 class BinaryScan(Dataset):
 
-  def __init__(self, data_dirA, data_statsA, data_dirB, data_statsB):
+  def __init__(self, data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size=-1):
     # save deats
-    self.datasetA = UnaryScan(data_dirA, data_statsA)
-    self.datasetB = UnaryScan(data_dirB, data_statsB)
+    self.datasetA = UnaryScan(data_dirA, data_statsA, max_dataset_size)
+    self.datasetB = UnaryScan(data_dirB, data_statsB, max_dataset_size)
     # get number of classes (can't be len(self.learning_map) because there
     # are multiple repeated entries, so the number that matters is how many
     # there are for the xentropy)
@@ -114,18 +116,19 @@ class Loader():
                val_split_ratio,
                workers=4,           # threads to load data
                gt=True,           # get gt?
-               shuffle_train=True):  # shuffle training set?
+               shuffle_train=True,
+               max_dataset_size=-1):  # shuffle training set?
 
     # number of classes that matters is the one for xentropy
     if len(data_dict.keys()) == 2:
       data_dirA, data_dirB = data_dict['dataset_A']['data_dir'], data_dict['dataset_B']['data_dir']
       data_statsA, data_statsB = data_dict['dataset_A']['sensor'], data_dict['dataset_B']['sensor']
-      total_dataset = BinaryScan(data_dirA, data_statsA, data_dirB, data_statsB)
+      total_dataset = BinaryScan(data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size)
     else:
-      total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'])
+      total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'], max_dataset_size)
     total_samples = len(total_dataset)
-    train_indcs = list(range(total_samples))[int(val_split_ratio*total_samples):]
-    val_indcs = list(range(total_samples))[:int(val_split_ratio*total_samples)]
+    train_indcs = range(total_samples)[int(val_split_ratio*total_samples):]
+    val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
     train_dataset = Subset(total_dataset, train_indcs)
     val_dataset = Subset(total_dataset, val_indcs)
     self.trainloader = torch.utils.data.DataLoader(train_dataset,

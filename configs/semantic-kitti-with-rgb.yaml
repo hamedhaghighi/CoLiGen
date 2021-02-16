@@ -213,14 +213,14 @@ split: # sequence numbers
 sensor:
     name: "HDL64"
     type: "spherical" # projective
-    have_rgb: False
+    have_rgb: True
     fov_up: 3
-    fov_down: -25 
-    foh_left: 45
-    foh_right: -45
+    fov_down: -15
+    foh_left: 40
+    foh_right: -40
     img_prop:
       width: 256
-      height: 64
+      height: 41
     img_means: #range,x,y,z,signal
       - 12.12
       - 10.88

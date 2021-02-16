@@ -94,7 +94,16 @@ class Visualizer():
             epoch (int) - - the current epoch
             save_result (bool) - - if save the current results to an HTML file
         """
+
         for k , img in visuals.items():
+            if k == 'real_A' and img.shape[1] > 3:
+                rgb = img[:, 3:]
+                fig = plt.figure()
+                for i in range(min(2, rgb.shape[0])):
+                    plt.subplot(1, 2, i+1)
+                    plt.imshow((rgb[i]*0.5 + 0.5).permute(1, 2, 0).cpu().detach().numpy())
+                self.writer.add_figure(phase + '/' + 'real_rgb', fig, g_step, True)
+                img = img[:, :3]      
             for j in range(img.shape[1]):
                 fig = plt.figure()
                 for i in range(min(2, img.shape[0])):

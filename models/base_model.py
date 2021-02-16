@@ -37,6 +37,7 @@ class BaseModel(ABC):
         # if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
         #     torch.backends.cudnn.benchmark = True
         self.loss_names = []
+        self.extra_val_loss_names = []
         self.model_names = []
         self.visual_names = []
         self.optimizers = []
@@ -132,10 +133,13 @@ class BaseModel(ABC):
                 visual_ret[name] = getattr(self, name)
         return visual_ret
 
-    def get_current_losses(self):
+    def get_current_losses(self, is_eval=False):
         """Return traning losses / errors. train.py will print out these errors on console, and save them to a file"""
+        loss_names = self.loss_names.copy()
+        if is_eval:
+            loss_names.extend(self.extra_val_loss_names)
         errors_ret = OrderedDict()
-        for name in self.loss_names:
+        for name in loss_names:
             if isinstance(name, str):
                 errors_ret[name] = float(getattr(self, 'loss_' + name))  # float(...) works for both scalar tensor and float number
         return errors_ret

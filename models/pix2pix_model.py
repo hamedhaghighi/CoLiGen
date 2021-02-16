@@ -1,7 +1,7 @@
 import torch
 from .base_model import BaseModel
 from . import networks
-
+from util.util import SSIM
 
 class Pix2PixModel(BaseModel):
     """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
@@ -45,6 +45,7 @@ class Pix2PixModel(BaseModel):
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
+        self.extra_val_loss_names = ['ssim']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['fake_B', 'real_B', 'range', 'real_A']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
@@ -64,6 +65,7 @@ class Pix2PixModel(BaseModel):
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
             self.criterionL1 = torch.nn.L1Loss(reduction='sum')
+            self.crterionSSIM = SSIM()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -97,7 +99,7 @@ class Pix2PixModel(BaseModel):
     def evaluate_model(self):
         self.forward()
         self.calc_loss_D()
-        self.calc_loss_G()
+        self.calc_loss_G(is_eval=True)
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
@@ -117,7 +119,7 @@ class Pix2PixModel(BaseModel):
         # combine loss and calculate gradients
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
 
-    def calc_loss_G(self):
+    def calc_loss_G(self, is_eval=False):
         """Calculate GAN and L1 loss for the generator"""
         # First, G(A) should fake the discriminator
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)
@@ -125,8 +127,10 @@ class Pix2PixModel(BaseModel):
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         # Second, G(A) = B
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) / self.proj_mask.sum()
+        if is_eval:
+            self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, self.proj_mask)
         # combine loss and calculate gradients
-        self.loss_G = self.loss_G_GAN + self.loss_G_L1 * self.opt.lambda_L1
+        self.loss_G = self.loss_G_GAN * self.opt.lambda_LGAN + self.loss_G_L1 * self.opt.lambda_L1
         
 
     def optimize_parameters(self):

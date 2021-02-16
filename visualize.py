@@ -136,12 +136,21 @@ if __name__ == '__main__':
     if not FLAGS.ignore_safety:
       assert(len(label_names) == len(scan_names))
 
+  porj_height = CFG['sensor']['img_prop']['height']
+  porj_width = CFG['sensor']['img_prop']['width']
+  fov_up = CFG['sensor']['fov_up']
+  fov_down = CFG['sensor']['fov_down']
+  foh_left = CFG['sensor']['foh_left']
+  foh_right = CFG['sensor']['foh_right']
+  have_rgb = CFG['sensor']['have_rgb']
   # create a scan
   if FLAGS.ignore_semantics:
-    scan = LaserScan(project=True, have_rgb=FLAGS.have_rgb)  # project all opened scans to spheric proj
+    scan = LaserScan(project=True, H=porj_height, W=porj_width, fov_up=fov_up,
+                     fov_down=fov_down, foh_left=foh_left, foh_right=foh_right, have_rgb=have_rgb)  # project all opened scans to spheric proj
   else:
     color_dict = CFG["color_map"]
-    scan = SemLaserScan(color_dict, project=True, have_rgb=FLAGS.have_rgb)
+    scan = SemLaserScan(color_dict, project=True,H=porj_height, W=porj_width, fov_up=fov_up,\
+       fov_down=fov_down, foh_left=foh_left, foh_right=foh_right, have_rgb=have_rgb)
   # create a visualizer
   semantics = not FLAGS.ignore_semantics
   if not semantics:

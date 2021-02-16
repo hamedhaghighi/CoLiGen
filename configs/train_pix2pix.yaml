@@ -4,23 +4,24 @@
 n_epochs: 100
 lr: 0.0002
 batch_size: 2
+fast_test: False
 lambda_L1: 100
-name: test
+lambda_LGAN: 1.0
+name: normal
+max_dataset_size: -1
 gpu_ids: [0]
 checkpoints_dir: './checkpoints'
-fast_test: True
 epoch: 'latest'
 continue_train: False
 load_iter: 0
-display_freq: 2
-print_freq: 2
-save_latest_freq: 1
-save_epoch_freq: 1
+display_freq: 50
+print_freq: 50
+save_latest_freq: 1000
 verbose: False
 suffix : ''
 val_split_ratio: 0.2
 seed: 10
-
+n_workers: 2
 
 
 # model params
