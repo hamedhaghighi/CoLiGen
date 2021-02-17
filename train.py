@@ -108,7 +108,7 @@ if __name__ == '__main__':
                 visualizer.display_current_results('train', model.get_current_visuals(), g_steps)
 
             if g_steps % opt.print_freq == 0:    # print training losses and save logging information to the disk
-                losses = model.get_current_losses()
+                losses = model.get_current_losses(is_eval=True)
                 visualizer.print_current_losses('train', epoch, e_steps, losses, train_tq)
                 visualizer.plot_current_losses('train', epoch, losses, g_steps)
 

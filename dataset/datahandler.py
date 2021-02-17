@@ -45,12 +45,20 @@ class UnaryScan(Dataset):
    
     # Min = np.array(self.data_stats['img_min'])[:, None, None]
     # Max = np.array(self.data_stats['img_max'])[:, None, None]
-    Min = proj[:5].min((1, 2))[:, None, None]
-    Max = proj[:5].max((1, 2))[:, None, None]
+    b_mask = proj[5] == 1.0
+    for i in range(5):
+      Min = proj[i][b_mask].min()
+      Max = proj[i][b_mask].max()
+      proj[i][b_mask] = (proj[i][b_mask] - Min)/(Max - Min)
+      proj[i][b_mask] = (proj[i][b_mask] - 0.5) / 0.5
+    # b_mask = (proj[5:6] == 1.0).repeat(5, axis=0)
+    # Min = proj[:5][b_mask].reshape((5, -1)).min(-1)[:, None, None]
+    # Max = proj[:5][b_mask].reshape((5, -1)).max(-1)[:, None, None]
+  
+    # proj[:5] = (proj[:5] - Min)/(Max - Min)
+    # proj[:5] = (proj[:5] - 0.5)/0.5
 
-    proj[:5] = (proj[:5] - Min)/(Max - Min)
-    proj[:5] = (proj[:5] - 0.5)/0.5
-    
+
     if self.data_stats['have_rgb']:
       proj[6:9] = proj[6:9] / 127.5 - 1.0
     proj = np.repeat(proj, 4 , axis= 1)

@@ -95,7 +95,7 @@ class Pix2PixModel(BaseModel):
         self.real_B = proj_remission.to(self.device)
         self.proj_mask = proj_mask.to(self.device)
         self.range = proj_range
-
+        
     def evaluate_model(self):
         self.forward()
         self.calc_loss_D()
@@ -119,7 +119,7 @@ class Pix2PixModel(BaseModel):
         # combine loss and calculate gradients
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
 
-    def calc_loss_G(self, is_eval=False):
+    def calc_loss_G(self, is_eval=True):
         """Calculate GAN and L1 loss for the generator"""
         # First, G(A) should fake the discriminator
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)

@@ -108,7 +108,8 @@ class Visualizer():
                 fig = plt.figure()
                 for i in range(min(2, img.shape[0])):
                     plt.subplot(1, 2, i+1)
-                    plt.imshow((img[i][j]*0.5 + 0.5).cpu().detach().numpy(), cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
+                    plt.imshow((img[i][j]*0.5 + 0.5).cpu().detach().numpy(),\
+                         cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
                 self.writer.add_figure(phase + '/' + k + str(j), fig, g_step, True)
 
     def plot_current_losses(self, phase, epoch, losses, g_step):
