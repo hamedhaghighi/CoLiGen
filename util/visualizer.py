@@ -74,13 +74,14 @@ class Visualizer():
                     shutil.rmtree(exp_name)
                 else:
                     exit(0)
-        self.tb_dir = os.path.join(exp_name +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-        os.makedirs(self.tb_dir, exist_ok=True)
-        self.writer = SummaryWriter(self.tb_dir)
-        self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
-        with open(self.log_name, "a") as log_file:
-            now = time.strftime("%c")
-            log_file.write('================ Training Loss (%s) ================\n' % now)
+        if opt.isTrain:
+            self.tb_dir = os.path.join(exp_name +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+            os.makedirs(self.tb_dir, exist_ok=True)
+            self.writer = SummaryWriter(self.tb_dir)
+            self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
+            with open(self.log_name, "a") as log_file:
+                now = time.strftime("%c")
+                log_file.write('================ Training Loss (%s) ================\n' % now)
 
     def reset(self):
         """Reset the self.saved status"""

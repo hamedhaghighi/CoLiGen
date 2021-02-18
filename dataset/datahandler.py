@@ -66,7 +66,7 @@ class UnaryScan(Dataset):
     proj_xyz = torch.from_numpy(proj[:3]).clone() * proj_mask
     proj_range = torch.from_numpy(proj[3:4]).clone() * proj_mask
     proj_remission = torch.from_numpy(proj[4:5]).clone() * proj_mask
-    proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask if self.data_stats['have_rgb'] else None
+    proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask if self.data_stats['have_rgb'] else []
     return proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb
 
   def __len__(self):
@@ -130,7 +130,7 @@ class Loader():
                workers=4,           # threads to load data
                gt=True,           # get gt?
                shuffle_train=True,
-               max_dataset_size=-1):  # shuffle training set?
+               max_dataset_size=-1, is_train=True):  # shuffle training set?
 
     # number of classes that matters is the one for xentropy
     if len(data_dict.keys()) == 2:
@@ -139,26 +139,32 @@ class Loader():
       total_dataset = BinaryScan(data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size)
     else:
       total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'], max_dataset_size)
-    total_samples = len(total_dataset)
-    train_indcs = range(total_samples)[int(val_split_ratio*total_samples):]
-    val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
-    train_dataset = Subset(total_dataset, train_indcs)
-    val_dataset = Subset(total_dataset, val_indcs)
-    self.trainloader = torch.utils.data.DataLoader(train_dataset,
-                                                   batch_size=batch_size,
-                                                   shuffle=shuffle_train,
-                                                   num_workers=workers,
-                                                   drop_last=True)
-    assert len(self.trainloader) > 0
+    if is_train:
+      total_samples = len(total_dataset)
+      train_indcs = range(total_samples)[int(val_split_ratio*total_samples):]
+      val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
+      train_dataset = Subset(total_dataset, train_indcs)
+      val_dataset = Subset(total_dataset, val_indcs)
+      self.trainloader = torch.utils.data.DataLoader(train_dataset,
+                                                    batch_size=batch_size,
+                                                    shuffle=shuffle_train,
+                                                    num_workers=workers,
+                                                    drop_last=True)
+      assert len(self.trainloader) > 0
 
-    self.validloader = torch.utils.data.DataLoader(val_dataset,
-                                                   batch_size=batch_size,
-                                                   shuffle=False,
-                                                   num_workers=workers,
-                                                   drop_last=True)
-    assert len(self.validloader) > 0
-
-
+      self.validloader = torch.utils.data.DataLoader(val_dataset,
+                                                    batch_size=batch_size,
+                                                    shuffle=False,
+                                                    num_workers=workers,
+                                                    drop_last=False)
+      assert len(self.validloader) > 0
+    else:
+      self.testloader = torch.utils.data.DataLoader(total_dataset,
+                                                     batch_size=batch_size,
+                                                     shuffle=False,
+                                                     num_workers=workers,
+                                                     drop_last=False)
+      assert len(self.testloader) > 0
 
 
 

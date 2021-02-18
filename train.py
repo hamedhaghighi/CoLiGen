@@ -57,6 +57,7 @@ def modify_opt_for_fast_test(opt):
     opt.save_latest_freq = 100
     opt.max_dataset_size = 5
     opt.batch_size = 1
+    opt.name = 'test'
 
 
 if __name__ == '__main__':

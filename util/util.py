@@ -144,9 +144,9 @@ def _ssim(img1, img2, window, mask, window_size, channel, size_average=True):
         ((mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2))
 
     if size_average:
-        return ssim_map.mean()
+        return (ssim_map.mean() + 1) / 2.0
     else:
-        return ssim_map.mean(1).mean(1).mean(1)
+        return (ssim_map.mean(1).mean(1).mean(1) + 1)/2.0
 
 
 class SSIM(torch.nn.Module):
@@ -159,7 +159,6 @@ class SSIM(torch.nn.Module):
 
     def forward(self, img1, img2, mask):
         (_, channel, _, _) = img1.size()
-
         if channel == self.channel and self.window.data.type() == img1.data.type():
             window = self.window
         else:

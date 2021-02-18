@@ -377,20 +377,35 @@ class Kitti_Loader():
 if __name__ == "__main__":
   parser = argparse.ArgumentParser("./kitti.py")
   parser.add_argument(
-      '--have_rgb', '-r',
-      dest='have_rgb',
-      default=False,
-      action='store_true',
-      help='Ignore semantics. Visualizes uncolored pointclouds.'
-      'Defaults to %(default)s',
+      '--total_samples', '-t',
+      dest='total_samples',
+      type=int,
+      default=-1
   )
-  FLAGS, unparsed = parser.parse_known_args()
-  have_rgb = FLAGS.have_rgb
+  parser.add_argument(
+      '--n_seq', '-s',
+      dest='n_seq',
+      type=int
+  )
+  parser.add_argument(
+      '--data_dir', '-d',
+      dest='data_dir',
+      type=str,
+      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset/'
+  )
+  parser.add_argument(
+      '--dest_dir', '-ds',
+      dest='dest_dir',
+      type=str,
+      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_projected'
+  )
 
-  total_data_len = 20
-  seqs_list = list(np.arange(11))
-  even_n_samples = total_data_len// len(seqs_list)
-  data_dir = '/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb/sequences'
+  FLAGS, unparsed = parser.parse_known_args()
+
+  total_data_len = FLAGS.total_samples
+  seqs_list = list(np.arange(FLAGS.n_seq))
+  even_n_samples = total_data_len// len(seqs_list) if total_data_len !=-1 else -1
+  data_dir = os.path.join(FLAGS.data_dir, 'sequences')
   cfg = yaml.safe_load(open('../configs/semantic-kitti.yaml', 'r'))
   scan_files_list = []
   label_files_list = []
@@ -412,9 +427,11 @@ if __name__ == "__main__":
     scan_files.sort()
     label_files.sort()
     assert(len(scan_files) == len(label_files))
-    # n_sample = min(len(scan_files), even_n_samples)
-    # rand_ind = np.random.choice(len(scan_files) , n_sample, replace=False)
-    rand_ind = np.arange(len(scan_files))
+    n_sample = min(len(scan_files), even_n_samples) if even_n_samples != -1 else len(scan_files)
+    if n_sample == len(scan_files):
+      rand_ind = np.arange(len(scan_files))
+    else:
+      rand_ind = np.random.choice(len(scan_files), n_sample, replace=False)
     scan_files_list.extend([scan_files[i] for i in rand_ind])
     label_files_list.extend([label_files[i] for i in rand_ind])
   # sort for correspondance
@@ -428,12 +445,12 @@ if __name__ == "__main__":
                       fov_up=cfg['sensor']['fov_up'],
                       fov_down=cfg['sensor']['fov_down'],
                       foh_left=cfg['sensor']['foh_left'],
-                      foh_right=cfg['sensor']['foh_right'], have_rgb=have_rgb)
+                      foh_right=cfg['sensor']['foh_right'], have_rgb=cfg['sensor']['have_rgb'])
 
   # open and obtain scan
   from tqdm import trange
   import tqdm
-  dest_dir = '/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb_projected'
+  dest_dir = FLAGS.dest_dir
   x = [0.0 for i in range(5)]
   x2 = [0.0 for i in range(5)]
   num = 0
@@ -444,7 +461,8 @@ if __name__ == "__main__":
     proj_range = np.expand_dims(np.copy(scan.proj_range), axis=0)
     proj_xyz = np.transpose(np.copy(scan.proj_xyz), (2, 0, 1))
     proj_remission = np.expand_dims(np.copy(scan.proj_remission), axis=0)
-    proj_rgb = np.transpose(scan.proj_points_rgb, (2, 0, 1)).astype('float32') if have_rgb else None
+    proj_rgb = np.transpose(scan.proj_points_rgb, (2, 0, 1)).astype(
+        'float32') if cfg['sensor']['have_rgb'] else None
     proj_mask = np.expand_dims(np.array(scan.proj_mask, dtype=np.float32), axis=0)
     proj_sem_label = np.expand_dims(np.array(scan.proj_sem_label, dtype=np.float32), axis=0)
     proj_inst_label = np.expand_dims(np.array(scan.proj_inst_label, dtype=np.float32), axis=0)

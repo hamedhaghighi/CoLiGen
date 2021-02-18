@@ -205,10 +205,11 @@ class BaseModel(ABC):
                     # for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
                     #     self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
                     net.load_state_dict(state_dict[name])
-            for i, o in enumerate(self.optimizers):
-                o.load_state_dict(state_dict[f'optimizer_{i}'])
-            for i, s in enumerate(self.schedulers):
-                s.load_state_dict(state_dict[f'scheduler_{i}'])
+            if self.isTrain:
+                for i, o in enumerate(self.optimizers):
+                    o.load_state_dict(state_dict[f'optimizer_{i}'])
+                for i, s in enumerate(self.schedulers):
+                    s.load_state_dict(state_dict[f'scheduler_{i}'])
             print('loading the model from %s' % load_path)
 
 
