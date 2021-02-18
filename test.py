@@ -98,7 +98,7 @@ if __name__ == '__main__':
     n_keys = len(test_image_results.keys())
     n_pics = n_pics // n_keys
     ra = test_image_results['real_A']
-    n_keys = n_keys + 3 if ra.shape[1] > 3 else n_keys + 2
+    n_keys = n_keys if ra.shape[1] > 3 else n_keys + 2
     for i in range(n_pics):
         fig = plt.figure()
         ind = 0
@@ -112,6 +112,8 @@ if __name__ == '__main__':
                 ax.set_yticks([])
                 img = img[:, :3]
                 ind += 1
+                continue
+
             for j in range(img.shape[1]):
                 ax = fig.add_subplot(1, n_keys, ind+1)
                 ax.imshow((img[i][j]*0.5 + 0.5),
