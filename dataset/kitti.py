@@ -391,13 +391,18 @@ if __name__ == "__main__":
       '--data_dir', '-d',
       dest='data_dir',
       type=str,
-      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset/'
+      default='/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb/'
   )
   parser.add_argument(
       '--dest_dir', '-ds',
       dest='dest_dir',
       type=str,
-      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_projected'
+      default='/media/oem/Local Disk/Phd-datasets/test_projected'
+  )
+  parser.add_argument(
+      '--have_label', '-hl',
+      dest='have_label',
+      action='store_true'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
@@ -407,8 +412,12 @@ if __name__ == "__main__":
   even_n_samples = total_data_len// len(seqs_list) if total_data_len !=-1 else -1
   data_dir = os.path.join(FLAGS.data_dir, 'sequences')
   cfg = yaml.safe_load(open('../configs/semantic-kitti.yaml', 'r'))
+  have_label = FLAGS.have_label
+
   scan_files_list = []
-  label_files_list = []
+  label_files_list = [] if have_label else None
+
+  
   for seq in seqs_list:
     # to string
     seq = '{0:02d}'.format(int(seq))
@@ -417,29 +426,41 @@ if __name__ == "__main__":
 
     # get paths for each
     scan_path = os.path.join(data_dir, seq, "velodyne")
-    label_path = os.path.join(data_dir, seq, "labels")
-    # get files
-
     scan_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
         os.path.expanduser(scan_path)) for f in fn if is_scan(f)]
-    label_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
-        os.path.expanduser(label_path)) for f in fn if is_label(f)]
     scan_files.sort()
-    label_files.sort()
-    assert(len(scan_files) == len(label_files))
+
+    if have_label:
+      label_path = os.path.join(data_dir, seq, "labels")
+      label_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
+          os.path.expanduser(label_path)) for f in fn if is_label(f)]
+      label_files.sort()
+      assert(len(scan_files) == len(label_files))
+
     n_sample = min(len(scan_files), even_n_samples) if even_n_samples != -1 else len(scan_files)
     if n_sample == len(scan_files):
       rand_ind = np.arange(len(scan_files))
     else:
       rand_ind = np.random.choice(len(scan_files), n_sample, replace=False)
     scan_files_list.extend([scan_files[i] for i in rand_ind])
-    label_files_list.extend([label_files[i] for i in rand_ind])
-  # sort for correspondance
-  scan_files_list.sort()
-  label_files_list.sort()
-
-  scan = SemLaserScan(cfg['color_map'],
-                      project=True,
+    scan_files_list.sort()
+    
+    if have_label:
+      label_files_list.extend([label_files[i] for i in rand_ind])
+      label_files_list.sort()
+  
+  if have_label:
+    label_files_list = iter(label_files_list)
+    scan = SemLaserScan(cfg['color_map'],
+                        project=True,
+                        H=cfg['sensor']['img_prop']['height'],
+                        W=cfg['sensor']['img_prop']['width'],
+                        fov_up=cfg['sensor']['fov_up'],
+                        fov_down=cfg['sensor']['fov_down'],
+                        foh_left=cfg['sensor']['foh_left'],
+                        foh_right=cfg['sensor']['foh_right'], have_rgb=cfg['sensor']['have_rgb'])
+  else:
+    scan = LaserScan(project=True,
                       H=cfg['sensor']['img_prop']['height'],
                       W=cfg['sensor']['img_prop']['width'],
                       fov_up=cfg['sensor']['fov_up'],
@@ -455,21 +476,30 @@ if __name__ == "__main__":
   x2 = [0.0 for i in range(5)]
   num = 0
   min_max = [[np.inf, -np.inf] for i in range(5)]
-  for scan_path , label_path in tqdm.tqdm(zip(scan_files_list, label_files_list), total=len(scan_files_list)):
+
+  for scan_path in tqdm.tqdm(scan_files_list, total=len(scan_files_list)):
     scan.open_scan(scan_path)
-    scan.open_label(label_path)
     proj_range = np.expand_dims(np.copy(scan.proj_range), axis=0)
     proj_xyz = np.transpose(np.copy(scan.proj_xyz), (2, 0, 1))
     proj_remission = np.expand_dims(np.copy(scan.proj_remission), axis=0)
     proj_rgb = np.transpose(scan.proj_points_rgb, (2, 0, 1)).astype(
         'float32') if cfg['sensor']['have_rgb'] else None
     proj_mask = np.expand_dims(np.array(scan.proj_mask, dtype=np.float32), axis=0)
-    proj_sem_label = np.expand_dims(np.array(scan.proj_sem_label, dtype=np.float32), axis=0)
-    proj_inst_label = np.expand_dims(np.array(scan.proj_inst_label, dtype=np.float32), axis=0)
-    if proj_rgb is not None:
+    if have_label:
+      label_path = next(label_files_list)
+      scan.open_label(label_path)
+      proj_sem_label = np.expand_dims(np.array(scan.proj_sem_label, dtype=np.float32), axis=0)
+      proj_inst_label = np.expand_dims(np.array(scan.proj_inst_label, dtype=np.float32), axis=0)
+
+    if proj_rgb is not None and have_label:
       proj = np.concatenate([proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_sem_label, proj_inst_label])
-    else:
+    elif proj_rgb is None and have_label:
       proj = np.concatenate([proj_xyz, proj_range, proj_remission, proj_mask, proj_sem_label, proj_inst_label])
+    elif proj_rgb is not None and not have_label:
+      proj = np.concatenate([proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb])
+    else:
+      proj = np.concatenate([proj_xyz, proj_range, proj_remission, proj_mask])
+
     splited = scan_path.split('/')
     filename = 'seq_' + splited[-3] + '_velodyne_' + splited[-1].split('.')[0] + '.npy'
     np.save(os.path.join(dest_dir, filename), proj)

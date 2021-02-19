@@ -78,7 +78,6 @@ class LaserScan:
     scan = np.fromfile(filename, dtype=np.float32)
     channels = 7 if self.have_rgb else 4
     scan = scan.reshape((-1, channels))
-
     # put in attribute
     points = scan[:, 0:3]    # get xyz
     remissions = scan[:, 3]  # get remission
