@@ -28,7 +28,7 @@ class UnaryScan(Dataset):
     else:
       raise ValueError("Sequences folder doesn't exist! Exiting...")
     
-    self.scan_file_names = glob.glob(data_dir + '/*')
+    self.scan_file_names = glob.glob(data_dir + '/*.npy')
     self.scan_file_names.sort()
 
     if max_dataset_size != -1:
@@ -141,6 +141,8 @@ class Loader():
     else:
       total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'], max_dataset_size)
 
+    self.total_dataset = total_dataset
+
     total_samples = len(total_dataset)
 
     if is_train:
@@ -164,7 +166,7 @@ class Loader():
       assert len(self.validloader) > 0
 
     else:
-      
+
       if is_training_data:
         val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
         test_dataset = Subset(total_dataset, val_indcs)

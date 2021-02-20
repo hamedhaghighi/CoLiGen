@@ -22,6 +22,7 @@ import time
 # from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
+from util.fid import FID
 from dataset.datahandler import Loader
 import yaml
 import argparse
@@ -55,8 +56,8 @@ def modify_opt_for_fast_test(opt):
     opt.display_freq = 1
     opt.print_freq = 1
     opt.save_latest_freq = 100
-    opt.max_dataset_size = 5
-    opt.batch_size = 1
+    opt.max_dataset_size = 10
+    opt.batch_size = 2
     opt.name = 'test'
 
 
@@ -80,6 +81,9 @@ if __name__ == '__main__':
     g_steps = 0
     KL = Loader(data_dict=opt.dataset, batch_size=opt.batch_size,\
          val_split_ratio=opt.val_split_ratio, max_dataset_size=opt.max_dataset_size, workers= opt.n_workers)
+
+    fid_cls = FID(KL.total_dataset, opt.dataset['dataset_A']['data_dir']) if opt.calc_FID else None
+
     epoch_tq = tqdm.tqdm(total=opt.n_epochs, desc='Epoch', position=1)
     start_from_epoch = model.schedulers[0].last_epoch if opt.continue_train else 0 
 
@@ -123,17 +127,31 @@ if __name__ == '__main__':
         val_losses = defaultdict(list)
         model.train(False)
         val_tq = tqdm.tqdm(total=n_valid_batch, desc='val_Iter', position=5)
+        dis_batch_ind = np.random.randint(0, n_valid_batch)
+        generated_remission = []
         for i in range(n_valid_batch):
             data = next(valid_dl)
             model.set_input_PCL(data)
             with torch.no_grad():
                 model.evaluate_model()
+
+            vis_dict = model.get_current_visuals()
+            generated_remission.append(vis_dict['fake_B'].detach().cpu())
+
+            if i == dis_batch_ind:
+                visualizer.display_current_results('val', vis_dict, g_steps)
+
             for k ,v in model.get_current_losses(is_eval=True).items():
                 val_losses[k].append(v)
             val_tq.update(1)
+        
+        if fid_cls is not None:
+            fid_score = fid_cls.fid_score(generated_remission)
+            visualizer.plot_current_losses('val', epoch, {'FID':fid_score}, g_steps)
+
         losses = {k: np.array(v).mean() for k , v in val_losses.items()}
+        
         visualizer.plot_current_losses('val', epoch, losses, g_steps)
-        visualizer.display_current_results('val', model.get_current_visuals(), g_steps)
         visualizer.print_current_losses('val', epoch, e_steps, losses, val_tq)
         epoch_tq.update(1)
 
