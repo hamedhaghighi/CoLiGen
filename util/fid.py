@@ -62,7 +62,7 @@ class PartialInceptionNetwork(nn.Module):
 
 class FID:
 
-    def __init__(self, train_dataset, data_dir ='', max_sample = 20, batch_size=8):
+    def __init__(self, train_dataset, data_dir ='', max_sample =5000, batch_size=64):
 
         ds = train_dataset
         n_samples = min(max_sample, len(train_dataset))
