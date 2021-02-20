@@ -130,17 +130,21 @@ class Loader():
                workers=4,           # threads to load data
                gt=True,           # get gt?
                shuffle_train=True,
-               max_dataset_size=-1, is_train=True):  # shuffle training set?
+               max_dataset_size=-1, is_train=True, is_training_data=True):  # shuffle training set?
 
     # number of classes that matters is the one for xentropy
+    
     if len(data_dict.keys()) == 2:
       data_dirA, data_dirB = data_dict['dataset_A']['data_dir'], data_dict['dataset_B']['data_dir']
       data_statsA, data_statsB = data_dict['dataset_A']['sensor'], data_dict['dataset_B']['sensor']
       total_dataset = BinaryScan(data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size)
     else:
       total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'], max_dataset_size)
+
+    total_samples = len(total_dataset)
+
     if is_train:
-      total_samples = len(total_dataset)
+      assert is_training_data
       train_indcs = range(total_samples)[int(val_split_ratio*total_samples):]
       val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
       train_dataset = Subset(total_dataset, train_indcs)
@@ -158,8 +162,16 @@ class Loader():
                                                     num_workers=workers,
                                                     drop_last=False)
       assert len(self.validloader) > 0
+
     else:
-      self.testloader = torch.utils.data.DataLoader(total_dataset,
+      
+      if is_training_data:
+        val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
+        test_dataset = Subset(total_dataset, val_indcs)
+      else:
+        test_dataset = total_dataset 
+
+      self.testloader = torch.utils.data.DataLoader(test_dataset,
                                                      batch_size=batch_size,
                                                      shuffle=False,
                                                      num_workers=workers,

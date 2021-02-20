@@ -54,8 +54,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg_test', type=str, help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
+    parser.add_argument('--is_train_data', '-it' , action='store_true',  help='is train data')
+
     pa = parser.parse_args()
     opt = M_parser(pa.cfg_test, pa.data_dir)
+    import pdb; pdb.set_trace()
     torch.manual_seed(opt.seed)
     np.random.seed(opt.seed)
     # DATA = yaml.safe_load(open(pa.cfg_dataset, 'r'))
@@ -66,7 +69,8 @@ if __name__ == '__main__':
     visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
     g_steps = 0
     KL = Loader(data_dict=opt.dataset, batch_size=opt.batch_size,\
-         val_split_ratio=opt.val_split_ratio, max_dataset_size=opt.max_dataset_size, workers= opt.n_workers, is_train=False)
+         val_split_ratio=opt.val_split_ratio, max_dataset_size=opt.max_dataset_size, workers= opt.n_workers, is_train=False,
+          is_training_data=pa.is_train_data)
 
     e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
     visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
