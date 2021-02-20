@@ -58,7 +58,6 @@ if __name__ == '__main__':
 
     pa = parser.parse_args()
     opt = M_parser(pa.cfg_test, pa.data_dir)
-    import pdb; pdb.set_trace()
     torch.manual_seed(opt.seed)
     np.random.seed(opt.seed)
     # DATA = yaml.safe_load(open(pa.cfg_dataset, 'r'))
