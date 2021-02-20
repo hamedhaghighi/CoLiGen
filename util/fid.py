@@ -62,14 +62,15 @@ class PartialInceptionNetwork(nn.Module):
 
 class FID:
 
-    def __init__(self, train_dataset, data_dir ='', max_sample =5000, batch_size=64):
+    def __init__(self, train_dataset, data_dir ='', max_sample =10000, batch_size=64):
 
         ds = train_dataset
         n_samples = min(max_sample, len(train_dataset))
         self.batch_size = min(batch_size, n_samples)
+        sample_indxs = np.random.choice(range(len(train_dataset)), n_samples, replace=False)
         samples = []
-        for i in range(n_samples):
-            _, _, proj_remission, _, _ = ds[i]
+        for ind in sample_indxs:
+            _, _, proj_remission, _, _ = ds[ind]
             samples.append(proj_remission)
         samples = self.preprocess_samples(samples)
         stat_dir = os.path.join(data_dir, 'fid_train_stat_with_net.pkl')
