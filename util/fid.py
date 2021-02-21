@@ -77,6 +77,7 @@ class FID:
             inception_network = to_cuda(inception_network)
             inception_network.eval()
             self.inception_network = inception_network
+            print('FID stats loaded ...\n')
 
         else:
 
@@ -92,7 +93,7 @@ class FID:
             self.inception_network = inception_network_c
             self.mu_train , self.sigma_train = self.calculate_activation_statistics(samples, batch_size)
             pickle.dump({'mu': self.mu_train, 'sigma':self.sigma_train, 'net':inception_network }, open(stat_dir, 'wb'))
-
+            print('FID stats saved ...\n')
         
 
     def fid_score(self, samples):
