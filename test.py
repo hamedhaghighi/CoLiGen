@@ -22,6 +22,7 @@ import time
 # from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
+from util.fid import FID
 from dataset.datahandler import Loader
 import yaml
 import argparse
@@ -71,6 +72,8 @@ if __name__ == '__main__':
          val_split_ratio=opt.val_split_ratio, max_dataset_size=opt.max_dataset_size, workers= opt.n_workers, is_train=False,
           is_training_data=pa.is_train_data)
 
+    fid_cls = FID(KL.total_dataset, opt.dataset['dataset_A']['data_dir'])
+
     e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
     visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
     test_dl = iter(KL.testloader)
@@ -81,6 +84,7 @@ if __name__ == '__main__':
     model.train(False)
     tq = tqdm.tqdm(total=n_test_batch, desc='val_Iter', position=5)
     n_pics = 0
+    generated_remission = []
     for i in range(n_test_batch):
         data = next(test_dl)
         model.set_input_PCL(data)
@@ -88,13 +92,36 @@ if __name__ == '__main__':
             model.evaluate_model()
         for k ,v in model.get_current_losses(is_eval=True).items():
             test_losses[k].append(v)
-        for k, v in model.get_current_visuals().items():
+
+        vis_dict = model.get_current_visuals()
+        generated_remission.append(vis_dict['fake_B'].cpu().detach())
+        for k, v in vis_dict.items():
             test_image_results[k].append(v.cpu().detach().numpy())
             n_pics += v.shape[0]
         tq.update(1)
+
     test_image_results = {k: np.concatenate(v, axis=0) for k, v in test_image_results.items()}
+    fid_score = fid_cls.fid_score(generated_remission)
     losses = {k: np.array(v).mean() for k , v in test_losses.items()}
     print (losses)
+    print('FID score: ', fid_score)
+
+    ### save_images
+
+
+    def subsample(img):
+        # img shape C, H , W
+        if len(img.shape) == 3:
+            _, H , _ = img.shape
+        elif len(img.shape) == 2:
+            H, _ = img.shape
+        y_ind = np.arange(0, H, 4)
+        if len(img.shape) == 3:
+            return img[:, y_ind, :] * 0.5 + 0.5
+        return img[y_ind, :] * 0.5 + 0.5
+
+
+
     exp_name = os.path.join(opt.checkpoints_dir, opt.name, 'test_results_pics')
     os.makedirs(exp_name, exist_ok=True)
     n_pics = min(n_pics , 100)
@@ -108,8 +135,8 @@ if __name__ == '__main__':
         for k, img in test_image_results.items():
             if k == 'real_A' and img.shape[1] > 3:
                 rgb = img[:, 3:]
-                ax = fig.add_subplot(1, n_keys, ind+1)
-                ax.imshow((rgb[i]*0.5 + 0.5).transpose((1, 2, 0)))
+                ax = fig.add_subplot(2, n_keys // 2, ind+1)
+                ax.imshow(subsample(rgb[i]).transpose((1, 2, 0)))
                 ax.title.set_text('rgb')
                 ax.set_xticks([])
                 ax.set_yticks([])
@@ -118,8 +145,8 @@ if __name__ == '__main__':
                 continue
 
             for j in range(img.shape[1]):
-                ax = fig.add_subplot(1, n_keys, ind+1)
-                ax.imshow((img[i][j]*0.5 + 0.5),
+                ax = fig.add_subplot(2, n_keys//2, ind+1)
+                ax.imshow(subsample(img[i][j]),
                             cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
                 ax.title.set_text(k)
                 ax.set_xticks([])

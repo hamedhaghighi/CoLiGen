@@ -67,25 +67,29 @@ class FID:
         ds = train_dataset
         n_samples = min(max_sample, len(train_dataset))
         self.batch_size = min(batch_size, n_samples)
-        sample_indxs = np.random.choice(range(len(train_dataset)), n_samples, replace=False)
-        samples = []
-        for ind in sample_indxs:
-            _, _, proj_remission, _, _ = ds[ind]
-            samples.append(proj_remission)
-        samples = self.preprocess_samples(samples)
         stat_dir = os.path.join(data_dir, 'fid_train_stat_with_net.pkl')
+
         if os.path.isfile(stat_dir):
+
             stat = pickle.load(open(stat_dir, 'rb'))
             self.mu_train, self.sigma_train = stat['mu'], stat['sigma']
             inception_network = stat['net']
             inception_network = to_cuda(inception_network)
             inception_network.eval()
             self.inception_network = inception_network
+
         else:
+
+            sample_indxs = np.random.choice(range(len(train_dataset)), n_samples, replace=False)
+            samples = []
+            for ind in sample_indxs:
+                _, _, proj_remission, _, _ = ds[ind]
+                samples.append(proj_remission)
+            samples = self.preprocess_samples(samples)
             inception_network = PartialInceptionNetwork()
-            inception_network = to_cuda(inception_network)
-            inception_network.eval()
-            self.inception_network = inception_network
+            inception_network_c = to_cuda(inception_network)
+            inception_network_c.eval()
+            self.inception_network = inception_network_c
             self.mu_train , self.sigma_train = self.calculate_activation_statistics(samples, batch_size)
             pickle.dump({'mu': self.mu_train, 'sigma':self.sigma_train, 'net':inception_network }, open(stat_dir, 'wb'))
 
