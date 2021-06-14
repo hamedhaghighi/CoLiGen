@@ -96,12 +96,12 @@ class FID:
             print('FID stats saved ...\n')
         
 
-    def fid_score(self, samples):
+    def fid_score(self, samples, batch_size=8):
         # list of tensors in cpu
         samples = self.preprocess_samples(samples)
 
         assert samples.shape[0] > 1 , 'for FID num of samples must be greater than one'
-        batch_size = min(self.batch_size, samples.shape[0])
+        batch_size = min(batch_size, samples.shape[0])
         mu , sigma = self.calculate_activation_statistics(samples, batch_size)
         fid = self.calculate_frechet_distance(self.mu_train, self.sigma_train, mu , sigma)
 

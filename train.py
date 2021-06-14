@@ -146,7 +146,7 @@ if __name__ == '__main__':
             val_tq.update(1)
         
         if fid_cls is not None:
-            fid_score = fid_cls.fid_score(generated_remission)
+            fid_score = fid_cls.fid_score(generated_remission, batch_size= opt.batch_size)
             visualizer.plot_current_losses('val', epoch, {'FID':fid_score}, g_steps)
 
         losses = {k: np.array(v).mean() for k , v in val_losses.items()}
