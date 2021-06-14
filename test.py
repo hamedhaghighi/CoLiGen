@@ -129,29 +129,59 @@ if __name__ == '__main__':
     n_pics = n_pics // n_keys
     ra = test_image_results['real_A']
     n_keys = n_keys if ra.shape[1] > 3 else n_keys + 2
-    for i in range(n_pics):
+    # for i in range(n_pics):
+    #     fig = plt.figure()
+    #     ind = 0
+    #     for k, img in test_image_results.items():
+    #         if k == 'real_A' and img.shape[1] > 3:
+    #             rgb = img[:, 3:]
+    #             ax = fig.add_subplot(2, n_keys // 2, ind+1)
+    #             ax.imshow(subsample(rgb[i]).transpose((1, 2, 0)))
+    #             ax.title.set_text('rgb')
+    #             ax.set_xticks([])
+    #             ax.set_yticks([])
+    #             img = img[:, :3]
+    #             ind += 1
+    #             continue
+
+    #         for j in range(img.shape[1]):
+    #             ax = fig.add_subplot(2, n_keys//2, ind+1)
+    #             ax.imshow(subsample(img[i][j]),
+    #                         cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
+    #             ax.title.set_text(k)
+    #             ax.set_xticks([])
+    #             ax.set_yticks([])
+    #             ind+= 1
+    #     fname = os.path.join(exp_name, 'img_' + str(i) + '.png' )                    
+    #     plt.savefig(fname)
+    #     plt.close(fig)
+
+    def save_img(img, tag, pic_dir):
         fig = plt.figure()
+        plt.imshow(img)
+        # ax = fig.add_subplot(1, 1, 1)
+        # ax.imshow(img)
+        # ax.set_xticks([])
+        # ax.set_yticks([])
+        fname = os.path.join(pic_dir, 'img_' + tag + '.png')
+        plt.savefig(fname)
+        plt.close(fig)
+        
+    for i in range(n_pics):
+        pic_dir = exp_name = os.path.join(exp_name, 'img_' + str(i))
+        os.makedirs(pic_dir , exist_ok=True)
+        
         ind = 0
         for k, img in test_image_results.items():
             if k == 'real_A' and img.shape[1] > 3:
                 rgb = img[:, 3:]
-                ax = fig.add_subplot(2, n_keys // 2, ind+1)
-                ax.imshow(subsample(rgb[i]).transpose((1, 2, 0)))
-                ax.title.set_text('rgb')
-                ax.set_xticks([])
-                ax.set_yticks([])
+                save_img(subsample(rgb[i]).transpose((1, 2, 0)), 'rgb', pic_dir)
                 img = img[:, :3]
                 ind += 1
                 continue
 
             for j in range(img.shape[1]):
-                ax = fig.add_subplot(2, n_keys//2, ind+1)
-                ax.imshow(subsample(img[i][j]),
-                            cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
-                ax.title.set_text(k)
-                ax.set_xticks([])
-                ax.set_yticks([])
-                ind+= 1
-        fname = os.path.join(exp_name, 'img_' + str(i) + '.png' )                    
-        plt.savefig(fname)
-        plt.close(fig)
+                save_img(subsample(img[i][j]), k, pic_dir)
+                ind += 1
+        
+        
