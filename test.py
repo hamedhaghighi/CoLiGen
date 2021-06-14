@@ -160,7 +160,7 @@ if __name__ == '__main__':
 
     def save_img(img, tag, pic_dir, cmap=None):
         fig = plt.figure()
-        img = plt.imshow(img, interpolation='nearest')
+        img = plt.imshow(img)
         if cmap is not None:
             img.set_cmap(cmap)
         plt.axis('off')
@@ -169,7 +169,7 @@ if __name__ == '__main__':
         # ax.set_xticks([])
         # ax.set_yticks([])
         fname = os.path.join(pic_dir, 'img_' + tag + '.png')
-        plt.savefig(fname, bbox_inches='tight')
+        plt.savefig(fname, bbox_inches='tight', pad_inches=0)
         plt.close(fig)
         
     for i in range(n_pics):
