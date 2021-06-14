@@ -19,6 +19,8 @@ See training and test tips at: https://github.com/junyanz/pytorch-CycleGAN-and-p
 See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/qa.md
 """
 import time
+
+from matplotlib import cm
 # from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
@@ -158,7 +160,7 @@ if __name__ == '__main__':
 
     def save_img(img, tag, pic_dir, cmap=None):
         fig = plt.figure()
-        img = plt.imshow(img)
+        img = plt.imshow(img, interpolation='nearest')
         if cmap is not None:
             img.set_cmap(cmap)
         plt.axis('off')
@@ -183,8 +185,9 @@ if __name__ == '__main__':
                 ind += 1
                 continue
 
+            cmap = 'inferno' if k == 'range' else 'cividis'
             for j in range(img.shape[1]):
-                save_img(subsample(img[i][j]), k, pic_dir)
+                save_img(subsample(img[i][j]), k, pic_dir, cmap)
                 ind += 1
         
         
