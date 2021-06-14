@@ -156,19 +156,22 @@ if __name__ == '__main__':
     #     plt.savefig(fname)
     #     plt.close(fig)
 
-    def save_img(img, tag, pic_dir):
+    def save_img(img, tag, pic_dir, cmap=None):
         fig = plt.figure()
-        plt.imshow(img)
+        img = plt.imshow(img)
+        if cmap is not None:
+            img.set_cmap(cmap)
+        plt.axis('off')
         # ax = fig.add_subplot(1, 1, 1)
         # ax.imshow(img)
         # ax.set_xticks([])
         # ax.set_yticks([])
         fname = os.path.join(pic_dir, 'img_' + tag + '.png')
-        plt.savefig(fname)
+        plt.savefig(fname, bbox_inches='tight')
         plt.close(fig)
         
     for i in range(n_pics):
-        pic_dir = exp_name = os.path.join(exp_name, 'img_' + str(i))
+        pic_dir = os.path.join(exp_name, 'img_' + str(i))
         os.makedirs(pic_dir , exist_ok=True)
         
         ind = 0
