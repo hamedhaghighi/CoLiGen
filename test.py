@@ -185,7 +185,8 @@ if __name__ == '__main__':
                 ind += 1
                 continue
 
-            cmap = 'gray' if k == 'range' else 'gray'
+            # cmap = 'gray' if k == 'range' else 'gray'
+            cmap = 'inferno' if k == 'range' else 'cividis'
             for j in range(img.shape[1]):
                 save_img(subsample(img[i][j]), k, pic_dir, cmap)
                 ind += 1
