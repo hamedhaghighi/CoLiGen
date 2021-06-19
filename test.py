@@ -160,9 +160,10 @@ if __name__ == '__main__':
 
     def save_img(img, tag, pic_dir, cmap=None):
         fig = plt.figure()
-        img = plt.imshow(img)
         if cmap is not None:
-            img.set_cmap(cmap)
+            plt.imshow(img, cmap=cmap, vmin=0.0, vmax=1.0)
+        else:
+            plt.imshow(img)
         plt.axis('off')
         # ax = fig.add_subplot(1, 1, 1)
         # ax.imshow(img)
