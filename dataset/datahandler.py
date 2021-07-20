@@ -66,8 +66,16 @@ class UnaryScan(Dataset):
     proj_xyz = torch.from_numpy(proj[:3]).clone() * proj_mask
     proj_range = torch.from_numpy(proj[3:4]).clone() * proj_mask
     proj_remission = torch.from_numpy(proj[4:5]).clone() * proj_mask
-    proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask if self.data_stats['have_rgb'] else []
-    return proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb
+    proj_rgb = []
+    proj_label = []
+    if self.data_stats['have_rgb'] and self.data_stats['have_label']:
+      proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask
+      proj_label = torch.from_numpy(proj[9: 10]).clone() * proj_mask
+    elif self.data_stats['have_rgb'] and not self.data_stats['have_label']:
+      proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask
+    elif not self.data_stats['have_rgb'] and self.data_stats['have_label']:
+      proj_label = torch.from_numpy(proj[6: 7]).clone() * proj_mask
+    return proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb, proj_label
 
   def __len__(self):
     return len(self.scan_file_names)

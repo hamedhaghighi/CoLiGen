@@ -97,7 +97,7 @@ class Visualizer():
         """
 
         for k , img in visuals.items():
-            if k == 'real_A' and img.shape[1] > 3:
+            if k == 'real_A' and img.shape[1] == 6:
                 rgb = img[:, 3:]
                 fig = plt.figure()
                 for i in range(min(2, rgb.shape[0])):

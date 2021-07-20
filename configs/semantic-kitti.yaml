@@ -213,7 +213,7 @@ split: # sequence numbers
 sensor:
     name: "HDL64"
     type: "spherical" # projective
-    have_rgb: True
+    have_rgb: False
     fov_up: 3
     fov_down: -25 
     foh_left: 45

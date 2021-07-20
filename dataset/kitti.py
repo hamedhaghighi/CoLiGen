@@ -391,13 +391,13 @@ if __name__ == "__main__":
       '--data_dir', '-d',
       dest='data_dir',
       type=str,
-      default='/media/oem/Local Disk/Phd-datasets/selected_semantickitti_with_rgb/'
+      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_wo_rgb/'
   )
   parser.add_argument(
       '--dest_dir', '-ds',
       dest='dest_dir',
       type=str,
-      default='/media/oem/Local Disk/Phd-datasets/test_projected'
+      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_wo_rgb_projected'
   )
   parser.add_argument(
       '--have_label', '-hl',
