@@ -84,7 +84,7 @@ class FID:
             sample_indxs = np.random.choice(range(len(train_dataset)), n_samples, replace=False)
             samples = []
             for ind in sample_indxs:
-                _, _, proj_remission, _, _ = ds[ind]
+                _, _, proj_remission, _, _, _ = ds[ind]
                 samples.append(proj_remission)
             samples = self.preprocess_samples(samples)
             inception_network = PartialInceptionNetwork()

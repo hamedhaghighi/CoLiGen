@@ -385,19 +385,20 @@ if __name__ == "__main__":
   parser.add_argument(
       '--n_seq', '-s',
       dest='n_seq',
-      type=int
+      type=int,
+      default=1
   )
   parser.add_argument(
       '--data_dir', '-d',
       dest='data_dir',
       type=str,
-      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_wo_rgb/'
+      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_w_label/'
   )
   parser.add_argument(
       '--dest_dir', '-ds',
       dest='dest_dir',
       type=str,
-      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_wo_rgb_projected'
+      default='/media/oem/Local Disk/Phd-datasets/Carla_dataset_w_label_projected'
   )
   parser.add_argument(
       '--have_label', '-hl',

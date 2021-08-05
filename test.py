@@ -130,7 +130,7 @@ if __name__ == '__main__':
     n_keys = len(test_image_results.keys())
     n_pics = n_pics // n_keys
     ra = test_image_results['real_A']
-    n_keys = n_keys if ra.shape[1] > 3 else n_keys + 2
+    n_keys = n_keys if ra.shape[1] == 6 else n_keys + 2
     # for i in range(n_pics):
     #     fig = plt.figure()
     #     ind = 0
@@ -170,7 +170,7 @@ if __name__ == '__main__':
         # ax.set_xticks([])
         # ax.set_yticks([])
         fname = os.path.join(pic_dir, 'img_' + tag + '.png')
-        plt.savefig(fname, bbox_inches='tight', pad_inches=0)
+        plt.savefig(fname, pad_inches=0)
         plt.close(fig)
         
     for i in range(n_pics):
@@ -179,7 +179,7 @@ if __name__ == '__main__':
         
         ind = 0
         for k, img in test_image_results.items():
-            if k == 'real_A' and img.shape[1] > 3:
+            if k == 'real_A' and img.shape[1] == 6:
                 rgb = img[:, 3:]
                 save_img(subsample(rgb[i]).transpose((1, 2, 0)), 'rgb', pic_dir)
                 img = img[:, :3]
@@ -189,7 +189,7 @@ if __name__ == '__main__':
             # cmap = 'gray' if k == 'range' else 'gray'
             cmap = 'inferno' if k == 'range' else 'cividis'
             for j in range(img.shape[1]):
-                save_img(subsample(img[i][j]), k, pic_dir, cmap)
+                save_img(subsample(img[i][j]), k+str(j), pic_dir, cmap)
                 ind += 1
         
         

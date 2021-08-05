@@ -62,11 +62,14 @@ def modify_opt_for_fast_test(opt):
 
 
 if __name__ == '__main__':
+    ####### Setting arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg_train', type=str, help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
     pa = parser.parse_args()
     opt = M_parser(pa.cfg_train, pa.data_dir)
+
+    
     torch.manual_seed(opt.seed)
     np.random.seed(opt.seed)
     # DATA = yaml.safe_load(open(pa.cfg_dataset, 'r'))
