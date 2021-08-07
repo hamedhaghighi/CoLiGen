@@ -100,8 +100,8 @@ class UnaryScan(Dataset):
     mask_x = np.logical_and(proj_x >= 0, proj_x <= 1)
     mask_y = np.logical_and(proj_y >= 0, proj_y <= 1)
     mask = np.logical_and(mask_x, mask_y)
-    proj_x = proj_x[mask] * self.proj_W
-    proj_y = proj_y[mask] * self.proj_H
+    proj_x = np.minimum(self.proj_W - 1, proj_x[mask] * self.proj_W)
+    proj_y = np.minimum(self.proj_H - 1, proj_y[mask] * self.proj_H)
     proj_x = proj_x.astype(np.int32)  
     proj_y = proj_y.astype(np.int32)
     # mask points out of the view
