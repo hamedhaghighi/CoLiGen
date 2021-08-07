@@ -6,10 +6,28 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 from PIL import Image
+import matplotlib.pyplot as plt
 import os
+import yaml
 
 
-def tensor2im(input_image, imtype=np.uint8):
+def label2color(label):
+    cfg = yaml.safe_load(open('./configs/semantic-kitti.yaml', 'r'))
+    color_dict = cfg['color_map']
+    int_keys = [int(k) for k in color_dict.keys()]
+    color_map = np.zeros((max(int_keys) + 1, 3))
+    
+    for key ,val in color_dict.items():
+        color_map[int(key)] = np.array(val) / 255.0
+    proj_color = color_map[label.int().squeeze().cpu().numpy()]
+    return proj_color
+
+def visualize_tensor(tensor):
+    numpy_img = tensor2im(tensor, min=-1.0, max= 1.0)
+    plt.imshow(numpy_img)
+    plt.show()
+
+def tensor2im(input_image, imtype=np.uint8, min=-1, max=1):
     """"Converts a Tensor array into a numpy image array.
 
     Parameters:
@@ -21,12 +39,12 @@ def tensor2im(input_image, imtype=np.uint8):
             image_tensor = input_image.data
         else:
             return input_image
-        image_numpy = image_tensor[0].cpu().float().numpy()  # convert it into a numpy array
+        image_numpy = image_tensor.cpu().float().numpy()  # convert it into a numpy array
         if image_numpy.shape[0] == 1:  # grayscale to RGB
             image_numpy = np.tile(image_numpy, (3, 1, 1))
-        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0  # post-processing: tranpose and scaling
+        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) - min) / (max - min) * 255.0  # post-processing: tranpose and scaling
     else:  # if it is a numpy array, do nothing
-        image_numpy = input_image
+        image_numpy = (input_image - min) / (max - min) * 255.0
     return image_numpy.astype(imtype)
 
 def denormalize(opt, x, minimum , maximum):

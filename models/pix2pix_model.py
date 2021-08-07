@@ -2,6 +2,8 @@ import torch
 from .base_model import BaseModel
 from . import networks
 from util.util import SSIM
+from util.util import visualize_tensor , label2color
+
 
 class Pix2PixModel(BaseModel):
     """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
@@ -97,7 +99,10 @@ class Pix2PixModel(BaseModel):
         self.real_B = proj_remission.to(self.device)
         self.proj_mask = proj_mask.to(self.device)
         self.range = proj_range
-        
+        # visualize_tensor(label2color(proj_label[0]))
+        # visualize_tensor(proj_range[0])
+        # visualize_tensor(proj_remission[0])
+               
     def evaluate_model(self):
         self.forward()
         self.calc_loss_D()
