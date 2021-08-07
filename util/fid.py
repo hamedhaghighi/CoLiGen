@@ -142,9 +142,9 @@ class FID:
         B, _, H, W = samples.shape
         samples = samples.expand(B, 3, H, W)
         samples = F.interpolate(samples, (299, 299))
-        samples = torch.clamp((samples * 0.5) + 0.5 , 0.0 , 1.0)
-        assert samples.max() <= 1.0
-        assert samples.min() >= 0.0
+        samples = torch.clamp(samples * 0.5 + 0.5 , 0.0 , 1.0)
+        # assert samples.max() <= 1.0
+        # assert samples.min() >= 0.0
         assert samples.dtype == torch.float32
         assert samples.shape == (B, 3, 299, 299)
         return samples
