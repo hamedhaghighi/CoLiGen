@@ -144,6 +144,7 @@ class UnaryScan(Dataset):
       proj_label = torch.from_numpy(proj_sem_label[None, :, :].repeat(4, axis=1)).float() * proj_mask
     return proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_label
 
+
   def __len__(self):
     return len(self.scan_file_names)
 
