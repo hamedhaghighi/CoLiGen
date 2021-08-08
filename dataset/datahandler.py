@@ -9,7 +9,7 @@ from torchvision import transforms
 import yaml
 import cv2
 import glob
-
+from util.util import map
 
 def deg2rad(theta):
   return theta / 180.0 * np.pi
@@ -24,6 +24,8 @@ class UnaryScan(Dataset):
 
   def __init__(self, data_dir, data_stats, max_dataset_size=-1, seqs_num=1):
     # Does dataset contain label and color
+    self.learning_map = data_stats['learning_map']
+    self.learning_map_inv = data_stats['learning_map_inv']
     self.is_labeled = data_stats['have_label']
     self.color_included = data_stats['have_rgb']
     # intitate Lidar related configs
@@ -142,6 +144,7 @@ class UnaryScan(Dataset):
     if points_rgb is not None:
       proj_rgb = torch.from_numpy(proj_points_rgb.repeat(4, axis=1)) * proj_mask
     if sem_label is not None:
+      proj_sem_label = map(proj_sem_label, self.learning_map)
       proj_label = torch.from_numpy(proj_sem_label[None, :, :].repeat(4, axis=1)).float() * proj_mask
     return proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_label
 
@@ -186,7 +189,11 @@ class BinaryScan(Dataset):
       lut = np.zeros((maxkey + 100), dtype=np.int32)
     for key, data in mapdict.items():
       try:
-        lut[key] = data
+        if nel > 1:
+          lut[key] = np.array(data)/255.0
+        else:
+          lut[key] = data
+
       except IndexError:
         print("Wrong key ", key)
     # do the mapping

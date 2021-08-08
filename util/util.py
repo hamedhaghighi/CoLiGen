@@ -11,15 +11,42 @@ import os
 import yaml
 
 
+def map(label, mapdict):
+    # put label from original values to xentropy
+    # or vice-versa, depending on dictionary values
+    # make learning map a lookup table
+    maxkey = 0
+    for key, data in mapdict.items():
+      if isinstance(data, list):
+        nel = len(data)
+      else:
+        nel = 1
+      if key > maxkey:
+        maxkey = key
+    # +100 hack making lut bigger just in case there are unknown labels
+    if nel > 1:
+      lut = np.zeros((maxkey + 100, nel), dtype=np.float32)
+    else:
+      lut = np.zeros((maxkey + 100), dtype=np.int32)
+    for key, data in mapdict.items():
+      try:
+        if nel > 1:
+          lut[key] = np.array(data)/255.0
+        else:
+          lut[key] = data
+
+      except IndexError:
+        print("Wrong key ", key)
+    # do the mapping
+    return lut[label]
+
+
 def label2color(label):
     cfg = yaml.safe_load(open('./configs/semantic-kitti.yaml', 'r'))
+    inv_learning_map = cfg['learning_map_inv']
     color_dict = cfg['color_map']
-    int_keys = [int(k) for k in color_dict.keys()]
-    color_map = np.zeros((max(int_keys) + 1, 3))
-    
-    for key ,val in color_dict.items():
-        color_map[int(key)] = np.array(val) / 255.0
-    proj_color = color_map[label.int().squeeze().cpu().numpy()]
+    label = map(label.int().squeeze().cpu().numpy(), inv_learning_map)
+    proj_color = map(label, color_dict)
     return proj_color
 
 def visualize_tensor(tensor):
