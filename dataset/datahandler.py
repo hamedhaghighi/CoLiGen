@@ -65,7 +65,7 @@ class UnaryScan(Dataset):
   def __getitem__(self, index):
     # Read PCL
     scan_file = self.scan_file_names[index]
-    label_file =self.label_filenames[index]
+
     scan = np.fromfile(scan_file, dtype=np.float32)
     channels = 7 if self.color_included else 4
     scan = scan.reshape((-1, channels))
@@ -74,6 +74,7 @@ class UnaryScan(Dataset):
     points_rgb = scan[:, 4:].astype('uint8') if self.color_included else None
     # Read Label
     if self.is_labeled:
+      label_file =self.label_filenames[index]
       label = np.fromfile(label_file, dtype=np.int32)
       label = label.reshape((-1))
       sem_label = label & 0xFFFF  # semantic label in lower half
