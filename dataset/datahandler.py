@@ -126,8 +126,7 @@ class UnaryScan(Dataset):
 
     # assing to images
     proj_range[proj_y, proj_x] = normalize(depth)
-    # proj_xyz[proj_y, proj_x] = normalize(points)
-    proj_xyz[proj_y, proj_x] = points
+    proj_xyz[proj_y, proj_x] = normalize(points)
     proj_remission[proj_y, proj_x] = normalize(remission)
     if points_rgb is not None:
       proj_points_rgb[proj_y, proj_x] = points_rgb/127.5 -1
