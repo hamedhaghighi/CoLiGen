@@ -45,11 +45,13 @@ class Pix2PixModel(BaseModel):
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         BaseModel.__init__(self, opt)
+        self.opt = opt
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
         self.extra_val_loss_names = ['ssim']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['fake_B', 'real_B', 'range', 'real_A']
+        self.visual_names = ['fake_B', 'real_B', 'range', 'real_A',
+                             'proj_label', 'proj_mask', 'points', 'sem_label', 'proj_idx']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
             self.model_names = ['G', 'D']
@@ -87,18 +89,22 @@ class Pix2PixModel(BaseModel):
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def set_input_PCL(self, data):
-        proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb, proj_label = data
-        if len(proj_rgb) == 0 and len(proj_label) == 0:
+        proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_label, proj_idx, points, sem_label = data
+        if self.opt.input_nc == 3:
             self.real_A = proj_xyz.to(self.device)
-        elif len(proj_rgb) != 0 and len(proj_label) == 0:
+        elif self.opt.input_nc == 6:
             self.real_A = torch.cat([proj_xyz, proj_rgb], dim=1).to(self.device)
-        elif len(proj_rgb) == 0 and len(proj_label) != 0:
+        elif self.opt.input_nc == 4:
             self.real_A = torch.cat([proj_xyz, proj_label], dim=1).to(self.device)
-        else:
+        elif self.opt.input_nc == 7:
             self.real_A = torch.cat([proj_xyz, proj_rgb, proj_label], dim=1).to(self.device)
         self.real_B = proj_remission.to(self.device)
         self.proj_mask = proj_mask.to(self.device)
         self.range = proj_range
+        self.proj_label = proj_label if len(proj_label) != 0 else torch.zeros_like(proj_range)
+        self.points = points
+        self.sem_label = sem_label
+        self.proj_idx = proj_idx
         # visualize_tensor(label2color(proj_label[0]))
         # visualize_tensor(proj_range[0])
         # visualize_tensor(proj_remission[0])

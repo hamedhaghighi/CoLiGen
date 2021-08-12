@@ -45,14 +45,16 @@ class UnaryScan(Dataset):
       self.scan_file_names.extend(glob.glob(seq_dir + '/velodyne/*'))
     self.scan_file_names.sort()
     rand_order = np.random.permutation(np.arange(len(self.scan_file_names)))
-    self.scan_file_names = [self.scan_file_names[ind] for ind in rand_order]
+    if seqs_num > 1:
+      self.scan_file_names = [self.scan_file_names[ind] for ind in rand_order]
     if max_dataset_size!=-1:
       self.scan_file_names = self.scan_file_names[:max_dataset_size]
     
     if self.is_labeled:
       self.label_filenames = glob.glob(data_dir + '/sequences/*/labels/*')
       self.label_filenames.sort()
-      self.label_filenames = [self.label_filenames[ind] for ind in rand_order]
+      if seqs_num > 1:
+        self.label_filenames = [self.label_filenames[ind] for ind in rand_order]
       if max_dataset_size != -1:
         self.label_filenames = self.label_filenames[:max_dataset_size]
 
@@ -60,7 +62,6 @@ class UnaryScan(Dataset):
       print("Sequences folder exists! Using sequences from %s" % self.data_dir)
     else:
       raise ValueError("Sequences folder doesn't exist! Exiting...")
-    
 
   
 
@@ -93,9 +94,7 @@ class UnaryScan(Dataset):
     proj_mask = np.ones((self.proj_H, self.proj_W), dtype=np.int32)       # [H,W] mask
     
     depth = np.linalg.norm(points, 2, axis=1)
-    scan_x = points[:, 0]
-    scan_y = points[:, 1]
-    scan_z = points[:, 2]
+    scan_x, scan_y, scan_z = points[:, 0], points[:, 1], points[:, 2]
     yaw = -np.arctan2(scan_y, scan_x)
     pitch = np.arcsin(scan_z / depth)
     proj_x = (yaw + self.foh_left)/self.foh
@@ -108,6 +107,7 @@ class UnaryScan(Dataset):
     proj_x = proj_x.astype(np.int32)  
     proj_y = proj_y.astype(np.int32)
     # mask points out of the view
+   
     points = points[mask]
     remissions = remissions[mask]
     points_rgb = points_rgb[mask] if points_rgb is not None else None
@@ -117,7 +117,6 @@ class UnaryScan(Dataset):
     indices = np.arange(depth.shape[0])
     order = np.argsort(depth)[::-1]
     depth = depth[order]
-    indices = indices[order]
     points = points[order]
     remission = remissions[order]
     sem_label = sem_label[order] if sem_label is not None else None
@@ -127,7 +126,8 @@ class UnaryScan(Dataset):
 
     # assing to images
     proj_range[proj_y, proj_x] = normalize(depth)
-    proj_xyz[proj_y, proj_x] = normalize(points)
+    # proj_xyz[proj_y, proj_x] = normalize(points)
+    proj_xyz[proj_y, proj_x] = points
     proj_remission[proj_y, proj_x] = normalize(remission)
     if points_rgb is not None:
       proj_points_rgb[proj_y, proj_x] = points_rgb/127.5 -1
@@ -146,7 +146,8 @@ class UnaryScan(Dataset):
     if sem_label is not None:
       proj_sem_label = map(proj_sem_label, self.learning_map)
       proj_label = torch.from_numpy(proj_sem_label[None, :, :].repeat(4, axis=1)).float() * proj_mask
-    return proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_label
+    proj_idx = torch.from_numpy(proj_idx[None, :, :])
+    return proj_xyz, proj_range, proj_remission, proj_mask, proj_rgb, proj_label, proj_idx, points, sem_label
 
 
   def __len__(self):
@@ -200,6 +201,18 @@ class BinaryScan(Dataset):
     return lut[label]
 
 
+def my_collate(batch):
+  returened_list =[]
+  for i in range(7):
+    if len(batch[0][i]) > 0:
+      returened_list.append(torch.stack([item[i] for item in batch], dim=0))
+    else:
+      returened_list.append([])
+  for i in range(7, 9):
+    returened_list.append([item[i] for item in batch])
+
+  return returened_list
+    
 class Loader():
   # standard conv, BN, relu
   def __init__(self,
@@ -209,7 +222,7 @@ class Loader():
                workers=4,           # threads to load data
                gt=True,           # get gt?
                shuffle_train=True,
-               max_dataset_size=-1, is_train=True, is_training_data=True):  # shuffle training set?
+               max_dataset_size=-1, test_dataset_size = -1, is_train=True, is_training_data=True):  # shuffle training set?
 
     # number of classes that matters is the one for xentropy
     
@@ -233,29 +246,29 @@ class Loader():
                                                     batch_size=batch_size,
                                                     shuffle=shuffle_train,
                                                     num_workers=workers,
-                                                    drop_last=True)
+                                                    drop_last=True, collate_fn = my_collate)
       assert len(self.trainloader) > 0
 
       self.validloader = torch.utils.data.DataLoader(val_dataset,
                                                     batch_size=batch_size,
                                                     shuffle=False,
                                                     num_workers=workers,
-                                                    drop_last=False)
+                                                     drop_last=False, collate_fn=my_collate)
       assert len(self.validloader) > 0
 
     else:
 
       if is_training_data:
         val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
-        test_dataset = Subset(total_dataset, val_indcs)
+        val_indcs = np.random.choice(val_indcs, test_dataset_size, replace=False).tolist()
       else:
-        test_dataset = total_dataset 
-
+        val_indcs = range(total_samples)[:test_dataset_size]
+      test_dataset = Subset(total_dataset, val_indcs)
       self.testloader = torch.utils.data.DataLoader(test_dataset,
                                                      batch_size=batch_size,
                                                      shuffle=False,
                                                      num_workers=workers,
-                                                     drop_last=False)
+                                                    drop_last=False, collate_fn=my_collate)
       assert len(self.testloader) > 0
 
 
