@@ -51,7 +51,7 @@ def get_option_setter(model_name):
     return model_class.modify_commandline_options
 
 
-def create_model(opt):
+def create_model(opt, lidar):
     """Create a model given the option.
 
     This function warps the class CustomDatasetDataLoader.
@@ -61,7 +61,7 @@ def create_model(opt):
         >>> from models import create_model
         >>> model = create_model(opt)
     """
-    model = find_model_using_name(opt.model)
-    instance = model(opt)
+    model = find_model_using_name(opt.model.name)
+    instance = model(opt, lidar)
     print("model [%s] was created" % type(instance).__name__)
     return instance

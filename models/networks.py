@@ -8,7 +8,63 @@ from torch.optim import lr_scheduler
 ###############################################################################
 # Helper Functions
 ###############################################################################
+class GumbelSigmoid(nn.Module):
+    """
+    Binary-case of Gumbel-Softmax
+    https://arxiv.org/pdf/1611.00712.pdf
+    """
 
+    def __init__(
+        self,
+        tau: float = 1.0,
+        tau_max: float = 1.0,  # valid if tau is None
+        hard: bool = True,
+        eps: float = 1e-10,
+        pixelwise: bool = True,
+    ):
+        super().__init__()
+        self.tau = tau
+        self.tau_max = tau_max
+        self.hard = hard
+        self.eps = eps
+        if self.tau is None:
+            self.weight = nn.Parameter(torch.tensor(0.0))
+        self.pixelwise = pixelwise
+        self.fixed_noise = None
+
+    def logistic_noise(self, logits):
+        B, _, H, W = logits.shape
+        shape = (B, 1, H, W) if self.pixelwise else (B, 1, 1, 1)
+        U1 = torch.rand(*shape, device=logits.device)
+        U2 = torch.rand_like(U1)
+        l = -torch.log(torch.log(U1 + self.eps) / torch.log(U2 + self.eps) + self.eps)
+        return l
+
+    def sigmoid_with_temperature(self, logits):
+        if self.tau is None:
+            inverse_tau = F.softplus(self.weight) + 1.0 / self.tau_max
+            return torch.sigmoid(logits * inverse_tau)
+        else:
+            return torch.sigmoid(logits / self.tau)
+
+    def forward(self, logits, threshold: float = 0.5):
+        if self.fixed_noise is None:
+            logits = logits + self.logistic_noise(logits)
+        else:
+            B, C, H, W = logits.shape
+            logits = logits + self.fixed_noise.expand(B, -1, -1, -1)
+
+        mask_soft = self.sigmoid_with_temperature(logits)
+
+        if self.hard:
+            # 'mask_hard' outputs and 'mask_soft' gradients
+            mask_hard = (mask_soft > threshold).float()
+            return mask_hard - mask_soft.detach() + mask_soft
+        else:
+            return mask_soft
+
+    def extra_repr(self):
+        return f"hard={self.hard}, eps={self.eps}"
 
 class Identity(nn.Module):
     def forward(self, x):
@@ -116,7 +172,7 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[]):
+def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], out_ch=None):
     """Create a generator
 
     Parameters:
@@ -153,7 +209,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'unet_128':
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
-        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, out_ch=out_ch)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -436,7 +492,7 @@ class ResnetBlock(nn.Module):
 class UnetGenerator(nn.Module):
     """Create a Unet-based generator"""
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, out_ch = None):
         """Construct a Unet generator
         Parameters:
             input_nc (int)  -- the number of channels in input images
@@ -451,6 +507,8 @@ class UnetGenerator(nn.Module):
         """
         super(UnetGenerator, self).__init__()
         # construct unet structure
+        self.out_ch = out_ch
+        self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
         for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
             unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
@@ -459,9 +517,27 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+
     def forward(self, input):
         """Standard forward"""
-        return self.model(input)
+        output = self.model(input)
+        output_dict = {}
+        i = 0
+        for k, v in self.out_ch.items():
+            output_dict[k] = output[:, i : i + v]
+            i = i + v
+        if 'mask' in output_dict:
+            output_dict['mask_logit'] = output_dict['mask']
+            mask = output_dict['mask'] = self.gumbel(output_dict['mask'])
+            if 'inv' in output_dict:
+                inv = torch.tanh(output_dict['inv'])
+                output_dict['inv_orig'] = inv
+                output_dict['inv'] = mask * inv + (1 - mask) * -1
+            if 'reflectance' in output_dict:
+                r = torch.tanh(output['reflectance'])
+                output_dict['reflectance'] = mask * r + (1 - mask) * -1
+        
+        return output_dict
 
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -504,7 +580,7 @@ class UnetSkipConnectionBlock(nn.Module):
                                         kernel_size=4, stride=2,
                                         padding=1)
             down = [downconv]
-            up = [uprelu, upconv, nn.Tanh()]
+            up = [uprelu, upconv]
             model = down + [submodule] + up
         elif innermost:
             upconv = nn.ConvTranspose2d(inner_nc, outer_nc,

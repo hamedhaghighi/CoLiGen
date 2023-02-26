@@ -9,13 +9,51 @@ from . import util, html
 from subprocess import Popen, PIPE
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib import pyplot as plt
-
+from torchvision.utils import make_grid
+from util import colorize, postprocess, flatten
+import open3d as o3d
+import open3d.visualization.rendering as rendering
+import torch
 
 if sys.version_info[0] == 2:
     VisdomExceptionBase = Exception
 else:
     VisdomExceptionBase = ConnectionError
 
+
+def visualize_tensor(pts, depth):
+
+    # depth_range = np.exp2(lidar_range*6)-1
+    intensity_color = plt.cm.viridis(np.clip(depth, 0, 1).flatten())
+    # pts, mask = range_image_to_point_cloud(depth, intensity, H, W)
+    # mask out invalid points
+    
+    xyz = pts
+    color = intensity_color[..., :3]
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(xyz[:, :3])
+    pcd.colors = o3d.utility.Vector3dVector(color)
+    # o3d.visualization.draw_geometries([pcd],zoom=0.25, front=[0.0, 0.0, 1.0],
+    #                               lookat=[0.0, 0.0, 0.0],
+    #                               up=[1.0, 0.0, 0.0])
+    # offscreen rendering
+    render = rendering.OffscreenRenderer(480, 270)
+    mtl = rendering.MaterialRecord()
+    mtl.base_color = [1, 1, 1, 0.5]
+    mtl.point_size = 4
+    mtl.shader = "defaultLit"
+    render.scene.set_background([255, 255, 255, 0.0])
+    render.scene.add_geometry("point cloud", pcd, mtl)
+    render.scene.set_lighting(render.scene.LightingProfile.NO_SHADOWS, (1, 1, 1))
+    render.scene.scene.enable_sun_light(True)
+    render.scene.camera.look_at([0, 0, 0], [0, 0, 1], [0, 1, 0])
+    bev_img = render.render_to_image()
+    render.setup_camera(60.0, [0, 0, 0], [-0.2, 0, 0.10], [0, 0, 1])
+    pts_img = render.render_to_image()
+    return bev_img, pts_img
+
+def to_np(tensor):
+    return tensor.detach().cpu().numpy()
 
 def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
     """Save images to the disk.
@@ -53,7 +91,7 @@ class Visualizer():
     It uses a Python library 'visdom' for display, and a Python library 'dominate' (wrapped in 'HTML') for creating HTML files with images.
     """
 
-    def __init__(self, opt):
+    def __init__(self, opt, lidar):
         """Initialize the Visualizer class
 
         Parameters:
@@ -63,6 +101,7 @@ class Visualizer():
         Step 3: create an HTML object for saveing HTML filters
         Step 4: create a logging file to store training losses
         """
+        self.lidar = lidar
         exp_name = os.path.join(opt.checkpoints_dir, opt.name)
         if not opt.continue_train:
             if os.path.exists(exp_name):
@@ -87,31 +126,53 @@ class Visualizer():
         """Reset the self.saved status"""
         self.saved = False
 
-    def display_current_results(self, phase, visuals, g_step):
-        """Display current results on visdom; save current results to an HTML file.
+    def log_imgs(self, tensor, tag, step, color=True):
+        grid = make_grid(tensor.detach(), nrow=4)
+        grid = grid.cpu().numpy()  # CHW
+        if color:
+            grid = grid[0]  # HW
+            grid = colorize(grid).transpose(2, 0, 1)  # CHW
+        self.writer.add_image(tag, grid, step)
 
-        Parameters:
-            visuals (OrderedDict) - - dictionary of images to display or save
-            epoch (int) - - the current epoch
-            save_result (bool) - - if save the current results to an HTML file
-        """
+    def display_current_results(self, phase, visuals, g_step, data_maps):
+        visuals = postprocess(visuals, self.lidar, data_maps)
+        for k , v in visuals.items():
+            if 'points' in visuals:
+                points = flatten(v)
+                inv = visuals['real_inv'] if 'real' in k else visuals['synth_inv']
+                image_list = []
+                for i in range(points.shape[0]):
+                    _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5)
+                    image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
+                visuals[k] = torch.stack(image_list, dim=0)
+        for k , img_tensor in visuals.items():
+            color = False if ('points' in k or 'label' in k) else True
+            self.log_imgs(img_tensor, phase + '/' + k, g_step, color)
+    # def display_current_results(self, phase, visuals, g_step):
+    #     """Display current results on visdom; save current results to an HTML file.
 
-        for k , img in visuals.items():
-            if k == 'real_A' and img.shape[1] == 6:
-                rgb = img[:, 3:]
-                fig = plt.figure()
-                for i in range(min(2, rgb.shape[0])):
-                    plt.subplot(1, 2, i+1)
-                    plt.imshow((rgb[i]*0.5 + 0.5).permute(1, 2, 0).cpu().detach().numpy())
-                self.writer.add_figure(phase + '/' + 'real_rgb', fig, g_step, True)
-                img = img[:, :3]      
-            for j in range(img.shape[1]):
-                fig = plt.figure()
-                for i in range(min(2, img.shape[0])):
-                    plt.subplot(1, 2, i+1)
-                    plt.imshow((img[i][j]*0.5 + 0.5).cpu().detach().numpy(),\
-                         cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
-                self.writer.add_figure(phase + '/' + k + str(j), fig, g_step, True)
+    #     Parameters:
+    #         visuals (OrderedDict) - - dictionary of images to display or save
+    #         epoch (int) - - the current epoch
+    #         save_result (bool) - - if save the current results to an HTML file
+    #     """
+
+    #     for k , img in visuals.items():
+    #         if k == 'real_A' and img.shape[1] == 6:
+    #             rgb = img[:, 3:]
+    #             fig = plt.figure()
+    #             for i in range(min(2, rgb.shape[0])):
+    #                 plt.subplot(1, 2, i+1)
+    #                 plt.imshow((rgb[i]*0.5 + 0.5).permute(1, 2, 0).cpu().detach().numpy())
+    #             self.writer.add_figure(phase + '/' + 'real_rgb', fig, g_step, True)
+    #             img = img[:, :3]      
+    #         for j in range(img.shape[1]):
+    #             fig = plt.figure()
+    #             for i in range(min(2, img.shape[0])):
+    #                 plt.subplot(1, 2, i+1)
+    #                 plt.imshow((img[i][j]*0.5 + 0.5).cpu().detach().numpy(),\
+    #                      cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
+    #             self.writer.add_figure(phase + '/' + k + str(j), fig, g_step, True)
 
     def plot_current_losses(self, phase, epoch, losses, g_step):
         """display the current losses on visdom display: dictionary of error labels and values
@@ -138,7 +199,7 @@ class Visualizer():
             t_comp (float) -- computational time per data point (normalized by batch_size)
             t_data (float) -- data loading time per data point (normalized by batch_size)
         """
-        message = 'Validation\n' if phase is 'val' else ''
+        message = 'Validation\n' if phase == 'val' else ''
         message = message + '(epoch: %d, iters: %d) ' % (epoch, iters)
         for k, v in losses.items():
             message += '%s: %.3f ' % (k, v)

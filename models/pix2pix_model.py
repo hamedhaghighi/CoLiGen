@@ -2,6 +2,7 @@ import torch
 from .base_model import BaseModel
 from . import networks
 from util.util import SSIM
+from util import sigmoid_to_tanh
 
 class Pix2PixModel(BaseModel):
     """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
@@ -36,7 +37,7 @@ class Pix2PixModel(BaseModel):
 
         return parser
 
-    def __init__(self, opt):
+    def __init__(self, opt, lidar):
         """Initialize the pix2pix class.
 
         Parameters:
@@ -44,60 +45,67 @@ class Pix2PixModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
+        self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake', 'mask_bce']
         self.extra_val_loss_names = ['ssim']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['fake_B', 'real_B', 'range', 'real_A']
+        self.visual_names = ['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
             self.model_names = ['G', 'D']
         else:  # during test time, only load G
             self.model_names = ['G']
         # define networks (both generator and discriminator)
-        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
-                                      not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
+        opt_m = opt.model
+        opt_t = opt.training
+        self.netG = networks.define_G(opt_m.input_nc, opt_m.output_nc, opt_m.ngf, opt_m.netG, opt_m.norm,
+                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch)
 
-        self.netD = networks.define_D(opt.input_nc + opt.output_nc, opt.ndf, opt.netD,
-                                        opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+        self.netD = networks.define_D(opt_m.input_nc + opt_m.output_nc, opt_m.ndf, opt_m.netD,
+                                        opt_m.n_layers_D, opt_m.norm, opt_m.init_type, opt_m.init_gain, self.gpu_ids)
 
         # define loss functions
-        self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
-        self.criterionL1 = torch.nn.L1Loss(reduction='sum')
+        self.criterionGAN = networks.GANLoss(opt_m.gan_mode).to(self.device)
+        self.criterionL1 = torch.nn.L1Loss()
         self.crterionSSIM = SSIM()
+        self.BCEwithLogit = torch.nn.BCEWithLogitsLoss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
+        self.lidar = lidar
+
         if self.isTrain:
-            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt_t.lr, betas=(opt_m.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt_t.lr, betas=(opt_m.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
-    def set_input(self, input):
-        """Unpack input data from the dataloader and perform necessary pre-processing steps.
-
-        Parameters:
-            input (dict): include the data itself and its metadata information.
-
-        The option 'direction' can be used to swap images in domain A and domain B.
-        """
-        AtoB = self.opt.direction == 'AtoB'
-        self.real_A = input['A' if AtoB else 'B'].to(self.device)
-        self.real_B = input['B' if AtoB else 'A'].to(self.device)
-        self.image_paths = input['A_paths' if AtoB else 'B_paths']
+    def fetch_reals(self, data):
+        mask = data["mask"].float()
+        inv = self.lidar.invert_depth(data["depth"])
+        inv = sigmoid_to_tanh(inv)  # [-1,1]
+        inv = mask * inv + (1 - mask) * -1
+        batch = {'inv': inv, 'mask': mask}
+        if 'reflectance' in data:
+            reflectance =  data["reflectance"] # [0, 1]
+            reflectance = sigmoid_to_tanh(reflectance)
+            reflectance = mask * reflectance + (1 - mask) * -1
+            batch['reflectance'] = reflectance
+        if 'label' in data:
+            batch['label'] = data['label']
+        for k , v in batch.items():
+            batch[k] = v.to(self.device)
+        return batch
 
     def set_input_PCL(self, data):
-        proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb, proj_label = data
-        if len(proj_rgb) == 0 and len(proj_label) == 0:
-            self.real_A = proj_xyz.to(self.device)
-        elif len(proj_rgb) != 0 and len(proj_label) == 0:
-            self.real_A = torch.cat([proj_xyz, proj_rgb], dim=1).to(self.device)
-        elif len(proj_rgb) == 0 and len(proj_label) != 0:
-            self.real_A = torch.cat([proj_xyz, proj_label], dim=1).to(self.device)
-        else:
-            self.real_A = torch.cat([proj_xyz, proj_rgb, proj_label], dim=1).to(self.device)
-        self.real_B = proj_remission.to(self.device)
-        self.proj_mask = proj_mask.to(self.device)
-        self.range = proj_range
+        data = self.fetch_reals(data)
+        for k, v in data.items():
+            setattr(self, 'real_' + k, v)
+        data_list = []
+        for m in self.opt.model.modality_A:
+            assert m in data
+            data_list.append(data[m])
         
+        self.real_A = torch.cat(data_list)
+        self.real_B = data[self.opt.model.modality_B]
+
     def evaluate_model(self):
         self.forward()
         self.calc_loss_D()
@@ -105,7 +113,10 @@ class Pix2PixModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.fake_B = self.netG(self.real_A) * self.proj_mask  # G(A)
+        out = self.netG(self.real_A) # G(A)
+        self.fake_B = self.out[self.opt.model.modality_B]
+        for k , v in out.items():
+            setattr(self, 'synth_' + k , v)
         
 
     def calc_loss_D(self):
@@ -128,11 +139,12 @@ class Pix2PixModel(BaseModel):
         pred_fake = self.netD(fake_AB)
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         # Second, G(A) = B
-        self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) / self.proj_mask.sum()
+        self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B)
+        self.loss_mask_bce = self.BCEwithLogit(self.mask_logit.squeeze(), self.mask)
         if is_eval:
-            self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, self.proj_mask)
+            self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, self.mask)
         # combine loss and calculate gradients
-        self.loss_G = self.loss_G_GAN * self.opt.lambda_LGAN + self.loss_G_L1 * self.opt.lambda_L1
+        self.loss_G = self.loss_G_GAN * self.opt.model.lambda_LGAN + self.loss_G_L1 * self.opt.model.lambda_L1 + self.loss_mask_bce * self.opt.model.lambda_mask
         
 
     def optimize_parameters(self):

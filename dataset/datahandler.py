@@ -1,96 +1,155 @@
 import os
+import os.path as osp
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data import Subset
-from .laserscan import LaserScan, SemLaserScan
 import torch.nn.functional as F
-from torchvision import transforms
+import torchvision.transforms.functional as TF
 import yaml
 import cv2
-import glob
+from glob import glob
+import random
+from util.lidar import point_cloud_to_xyz_image
+from util import _map
+from PIL import Image
+from scipy import ndimage as nd
+
+CONFIG = {
+    "split": {
+        "train": [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
+        "val": [8],
+        "test": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+        "custom_carla": [0]
+    },
+}
 
 
+class KITTIOdometry(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        root,
+        split,
+        DATA,
+        shape=(64, 256),
+        min_depth=0.9,
+        max_depth=120.0,
+        flip=False,
+        config=CONFIG,
+        modality=("depth"),
+        is_sorted=True,
+        is_raw=True,
+        fill_in_label=False):
 
-class UnaryScan(Dataset):
-
-  def __init__(self, data_dir, data_stats, max_dataset_size=-1):
-    # save deats
-    self.data_dir = data_dir
-    self.data_stats = data_stats
-    # get number of classes (can't be len(self.learning_map) because there
-    # are multiple repeated entries, so the number that matters is how many
-    # there are for the xentropy)
-    # sanity checks
-    # make sure directory exists
-    if os.path.isdir(self.data_dir):
-      print("Sequences folder exists! Using sequences from %s" % self.data_dir)
-    else:
-      raise ValueError("Sequences folder doesn't exist! Exiting...")
-    
-    self.scan_file_names = glob.glob(data_dir + '/*.npy')
-    self.scan_file_names.sort()
-
-    if max_dataset_size != -1:
-      self.scan_file_names = self.scan_file_names[:max_dataset_size]
-
-  def __getitem__(self, index):
-    # get item in tensor shape
-    scan_file = self.scan_file_names[index]
-    proj = np.load(scan_file)
-      # map unused classes to used classes (also for projection)
-      # scan.sem_label = self.map(scan.sem_label, self.learning_map)
-      # scan.proj_sem_label = self.map(scan.proj_sem_label, self.learning_map)
-      # proj_labels = proj_labels * proj_mask 
-   
-    # Min = np.array(self.data_stats['img_min'])[:, None, None]
-    # Max = np.array(self.data_stats['img_max'])[:, None, None]
-    b_mask = proj[5] == 1.0
-    for i in range(5):
-      Min = proj[i][b_mask].min()
-      Max = proj[i][b_mask].max()
-      proj[i][b_mask] = (proj[i][b_mask] - Min)/(Max - Min)
-      proj[i][b_mask] = (proj[i][b_mask] - 0.5) / 0.5
-    # b_mask = (proj[5:6] == 1.0).repeat(5, axis=0)
-    # Min = proj[:5][b_mask].reshape((5, -1)).min(-1)[:, None, None]
-    # Max = proj[:5][b_mask].reshape((5, -1)).max(-1)[:, None, None]
-  
-    # proj[:5] = (proj[:5] - Min)/(Max - Min)
-    # proj[:5] = (proj[:5] - 0.5)/0.5
+      super().__init__()
+      self.root = osp.join(root, "sequences")
+      self.split = split
+      self.config = config
+      self.subsets = np.asarray(self.config["split"][split])
+      self.shape = tuple(shape)
+      self.min_depth = min_depth
+      self.max_depth = max_depth
+      self.flip = flip
+      assert "depth" in modality, '"depth" is required'
+      self.modality = modality
+      self.return_remission = 'reflectance' in self.modality
+      self.datalist = None
+      self.is_sorted = is_sorted
+      self.is_raw = is_raw
+      self.DATA = DATA
+      self.fill_in_label = fill_in_label
+      print(os.getcwd())
+      self.load_datalist()
 
 
-    if self.data_stats['have_rgb']:
-      proj[6:9] = proj[6:9] / 127.5 - 1.0
-    proj = np.repeat(proj, 4 , axis= 1)
-    proj_mask = torch.from_numpy(proj[5:6]).clone()
-    proj_xyz = torch.from_numpy(proj[:3]).clone() * proj_mask
-    proj_range = torch.from_numpy(proj[3:4]).clone() * proj_mask
-    proj_remission = torch.from_numpy(proj[4:5]).clone() * proj_mask
-    proj_rgb = []
-    proj_label = []
-    if self.data_stats['have_rgb'] and self.data_stats['have_label']:
-      proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask
-      proj_label = torch.from_numpy(proj[9: 10]).clone() * proj_mask
-    elif self.data_stats['have_rgb'] and not self.data_stats['have_label']:
-      proj_rgb = torch.from_numpy(proj[6: 9]).clone() * proj_mask
-    elif not self.data_stats['have_rgb'] and self.data_stats['have_label']:
-      proj_label = torch.from_numpy(proj[6: 7]).clone() * proj_mask
-    return proj_xyz , proj_range, proj_remission, proj_mask, proj_rgb, proj_label
+    def fill(self, data, invalid=None):
+      if invalid is None: invalid = np.isnan(data)
+      ind = nd.distance_transform_edt(invalid, return_distances=False, return_indices=True)
+      return data[tuple(ind)]
 
-  def __len__(self):
-    return len(self.scan_file_names)
+    def load_datalist(self):
+        datalist = []
+        labels_list=[]
+        for subset in self.subsets:
+            subset_dir = osp.join(self.root, str(subset).zfill(2))
+            sub_point_paths = sorted(glob(osp.join(subset_dir, "velodyne/*")))
+            sub_labels_paths = sorted(glob(osp.join(subset_dir, "labels/*")))
+            datalist += list(sub_point_paths)
+            labels_list += list(sub_labels_paths)
+        self.datalist = datalist
+        self.labels_list = labels_list
+
+    def preprocess(self, out):
+        out["depth"] = np.linalg.norm(out["xyz"], ord=2, axis=2)
+        if 'label' in out and self.fill_in_label:
+          fill_in_mask = ~ (out["depth"] > 0.0)
+          out['label'] = self.fill(out['label'], fill_in_mask)
+          
+        mask = (
+            (out["depth"] > 0.0)
+            & (out["depth"] > self.min_depth)
+            & (out["depth"] < self.max_depth)
+        )
+        out["depth"] -= self.min_depth
+        out["depth"] /= self.max_depth - self.min_depth
+        out["mask"] = mask
+        out["xyz"] /= self.max_depth  # unit space
+        for key in out.keys():
+          if key == 'label' and self.fill_in_label:
+            continue
+          out[key][~mask] = 0
+        return out
+
+    def transform(self, out):
+        flip = self.flip and random.random() > 0.5
+        for k, v in out.items():
+            v = TF.to_tensor(v)
+            if flip:
+                v = TF.hflip(v)
+            v = TF.resize(v, self.shape, TF.InterpolationMode.NEAREST)
+            out[k] = v
+        return out
+
+    def __getitem__(self, index):
+        points_path = self.datalist[index]
+        labels_path = self.labels_list[index]
+        if not self.is_raw:
+            points = np.load(points_path).astype(np.float32)
+            sem_label = np.array(Image.open(labels_path))
+            points = np.concatenate([points, sem_label.astype('float32')[..., None]], axis=-1)
+        else:
+            point_cloud = np.fromfile(points_path, dtype=np.float32).reshape((-1, 4))
+            label = np.fromfile(labels_path, dtype=np.int32)
+            sem_label = label & 0xFFFF 
+            sem_label = _map(sem_label, self.DATA.learning_map)
+            points, _ = point_cloud_to_xyz_image(np.concatenate([point_cloud, sem_label.astype('float32')[:, None]], axis=1) \
+              , H=self.shape[0], W=2048, is_sorted=self.is_sorted)
+        out = {}
+        out["xyz"] = points[..., :3]
+        if "reflectance" in self.modality:
+            out["reflectance"] = points[..., [3]]
+        if "label" in self.modality:
+            out["label"] = points[..., [4]]
+        out = self.preprocess(out)
+        out = self.transform(out)
+        return out
+
+    def __len__(self):
+        return len(self.datalist)
+
+    # def __repr__(self) -> str:
+    #     head = "Dataset " + self.__class__.__name__
+    #     body = ["Number of datapoints: {}".format(self.__len__())]
+    #     body.append("Root location: {}".format(self.root))
+    #     lines = [head] + ["    " + line for line in body]
+    #     return "\n".join(lines)
 
 class BinaryScan(Dataset):
 
   def __init__(self, data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size=-1):
     # save deats
-    self.datasetA = UnaryScan(data_dirA, data_statsA, max_dataset_size)
-    self.datasetB = UnaryScan(data_dirB, data_statsB, max_dataset_size)
-    # get number of classes (can't be len(self.learning_map) because there
-    # are multiple repeated entries, so the number that matters is how many
-    # there are for the xentropy)
-    # sanity checks
-    # make sure directory exists 
+    # self.datasetA = UnaryScan(data_dirA, data_statsA, max_dataset_size)
+    # self.datasetB = UnaryScan(data_dirB, data_statsB, max_dataset_size)
     self.sizeA = len(data_statsA)
     self.sizeB = len(data_statsB)
     
@@ -129,64 +188,29 @@ class BinaryScan(Dataset):
     return lut[label]
 
 
-class Loader():
-  # standard conv, BN, relu
-  def __init__(self,
-               data_dict,              # directory for data
-               batch_size,        # batch size for train and val
-               val_split_ratio,
-               workers=4,           # threads to load data
-               gt=True,           # get gt?
-               shuffle_train=True,
-               max_dataset_size=-1, is_train=True, is_training_data=True):  # shuffle training set?
 
-    # number of classes that matters is the one for xentropy
-    
-    if len(data_dict.keys()) == 2:
-      data_dirA, data_dirB = data_dict['dataset_A']['data_dir'], data_dict['dataset_B']['data_dir']
-      data_statsA, data_statsB = data_dict['dataset_A']['sensor'], data_dict['dataset_B']['sensor']
-      total_dataset = BinaryScan(data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size)
-    else:
-      total_dataset = UnaryScan(data_dict['dataset_A']['data_dir'], data_dict['dataset_A']['sensor'], max_dataset_size)
+def get_data_loader(cfg, split, batch_size):
+  assert getattr(cfg,'dataset_A')
+  cfg = cfg.dataset_A
+  dataset = KITTIOdometry(
+        cfg.data_dir,
+        split,
+        cfg,
+        shape=(cfg.img_prop.height, cfg.img_prop.width),
+        min_depth=cfg.min_depth,
+        max_depth=cfg.max_depth,
+        flip=False,
+        config=CONFIG,
+        modality=cfg.modality,
+        is_sorted=cfg.is_sorted,
+        is_raw=cfg.is_raw,
+        fill_in_label=cfg.fill_in_label
+    )
 
-    self.total_dataset = total_dataset
-
-    total_samples = len(total_dataset)
-
-    if is_train:
-      assert is_training_data
-      train_indcs = range(total_samples)[int(val_split_ratio*total_samples):]
-      val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
-      train_dataset = Subset(total_dataset, train_indcs)
-      val_dataset = Subset(total_dataset, val_indcs)
-      self.trainloader = torch.utils.data.DataLoader(train_dataset,
-                                                    batch_size=batch_size,
-                                                    shuffle=shuffle_train,
-                                                    num_workers=workers,
-                                                    drop_last=True)
-      assert len(self.trainloader) > 0
-
-      self.validloader = torch.utils.data.DataLoader(val_dataset,
-                                                    batch_size=batch_size,
-                                                    shuffle=False,
-                                                    num_workers=workers,
-                                                    drop_last=False)
-      assert len(self.validloader) > 0
-
-    else:
-
-      if is_training_data:
-        val_indcs = range(total_samples)[:int(val_split_ratio*total_samples)]
-        test_dataset = Subset(total_dataset, val_indcs)
-      else:
-        test_dataset = total_dataset 
-
-      self.testloader = torch.utils.data.DataLoader(test_dataset,
-                                                     batch_size=batch_size,
-                                                     shuffle=False,
-                                                     num_workers=workers,
-                                                     drop_last=False)
-      assert len(self.testloader) > 0
+  loader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,
+                                                    shuffle= (split == 'train'),
+                                                    num_workers=4)
+  return loader, dataset
 
 
 

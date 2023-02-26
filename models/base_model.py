@@ -30,10 +30,10 @@ class BaseModel(ABC):
             -- self.optimizers (optimizer list):    define and initialize optimizers. You can define one optimizer for each network. If two networks are updated at the same time, you can use itertools.chain to group them. See cycle_gan_model.py for an example.
         """
         self.opt = opt
-        self.gpu_ids = opt.gpu_ids
-        self.isTrain = opt.isTrain
+        self.gpu_ids = opt.training.gpu_ids
+        self.isTrain = opt.training.isTrain
         self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')  # get device name: CPU or GPU
-        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)  # save all the checkpoints to save_dir
+        self.save_dir = os.path.join(opt.training.checkpoints_dir, opt.training.name)  # save all the checkpoints to save_dir
         # if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
         #     torch.backends.cudnn.benchmark = True
         self.loss_names = []
@@ -57,14 +57,14 @@ class BaseModel(ABC):
         """
         return parser
 
-    @abstractmethod
-    def set_input(self, input):
-        """Unpack input data from the dataloader and perform necessary pre-processing steps.
+    # @abstractmethod
+    # def set_input(self, input):
+    #     """Unpack input data from the dataloader and perform necessary pre-processing steps.
 
-        Parameters:
-            input (dict): includes the data itself and its metadata information.
-        """
-        pass
+    #     Parameters:
+    #         input (dict): includes the data itself and its metadata information.
+    #     """
+    #     pass
 
     @abstractmethod
     def forward(self):
@@ -117,7 +117,7 @@ class BaseModel(ABC):
         """Update learning rates for all the networks; called at the end of every epoch"""
         old_lr = self.optimizers[0].param_groups[0]['lr']
         for scheduler in self.schedulers:
-            if self.opt.lr_policy == 'plateau':
+            if self.opt.training.lr_policy == 'plateau':
                 scheduler.step(self.metric)
             else:
                 scheduler.step()
