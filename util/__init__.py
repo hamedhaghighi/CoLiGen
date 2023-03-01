@@ -8,7 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-
+import matplotlib
+import matplotlib.cm as cm
 # from util.geometry import estimate_surface_normal
 
 
@@ -117,11 +118,12 @@ def postprocess(synth, lidar, tol=1e-8, normal_mode="closest", data_maps=None):
     for key, value in synth.items():
         if 'inv' in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
-            out["points_" + key] = lidar.inv_to_xyz(value, tol)
+            out[key + "_points"] = lidar.inv_to_xyz(out[key], tol)
         elif "reflectance" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:
-            out[key] = _map(_map(value,data_maps.inv_learning_map), data_maps.color_map)[..., ::-1]
+            label_tensor = _map(_map(value.squeeze().long(), data_maps.learning_map_inv), data_maps.color_map)
+            out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
         else:
             out[key] = value
     return out
@@ -138,24 +140,13 @@ def save_videos(frames, filename, fps=30.0):
     cv2.destroyAllWindows()
     print("Saved:", filename)
 
+def colorize(tensor, cmap="turbo", vmax=1.0):
+    assert tensor.ndim == 2, "got {}".format(tensor.ndim)
+    normalizer = matplotlib.colors.Normalize(vmin=0.0, vmax=vmax)
+    mapper = cm.ScalarMappable(norm=normalizer, cmap=cmap)
+    tensor = mapper.to_rgba(tensor)[..., :3]
+    return tensor
 
-def colorize(tensor, cmap="turbo"):
-    if tensor.ndim == 4:
-        B, C, H, W = tensor.shape
-        assert C == 1, f"expected (B,1,H,W) tensor, but got {tensor.shape}"
-        tensor = tensor.squeeze(1)
-    assert tensor.ndim == 3, f"got {tensor.ndim}!=3"
-
-    device = tensor.device
-
-    colors = eval(f"cm.{cmap}")(np.linspace(0, 1, 256))[:, :3]
-    color_map = torch.tensor(colors, device=device, dtype=tensor.dtype)  # (256,3)
-
-    tensor = tensor.clamp_(0, 1)
-    tensor = tensor * 255.0
-    index = torch.round(tensor).long()
-
-    return F.embedding(index, color_map).permute(0, 3, 1, 2)
 
 
 def flatten(tensor_BCHW):
@@ -218,5 +209,5 @@ def _map(label, mapdict):
             print("Wrong key ", key)
     # do the mapping
     if torch.is_tensor(label):
-        lut = torch.from_numpy(lut)
+        lut = torch.from_numpy(lut).to(label.get_device()).long()
     return lut[label]

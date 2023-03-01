@@ -116,12 +116,13 @@ class KITTIOdometry(torch.utils.data.Dataset):
         if not self.is_raw:
             points = np.load(points_path).astype(np.float32)
             sem_label = np.array(Image.open(labels_path))
+            sem_label = _map(sem_label, self.DATA.m_learning_map)
             points = np.concatenate([points, sem_label.astype('float32')[..., None]], axis=-1)
         else:
             point_cloud = np.fromfile(points_path, dtype=np.float32).reshape((-1, 4))
             label = np.fromfile(labels_path, dtype=np.int32)
             sem_label = label & 0xFFFF 
-            sem_label = _map(sem_label, self.DATA.learning_map)
+            sem_label = _map(_map(sem_label, self.DATA.learning_map), self.DATA.m_learning_map)
             points, _ = point_cloud_to_xyz_image(np.concatenate([point_cloud, sem_label.astype('float32')[:, None]], axis=1) \
               , H=self.shape[0], W=2048, is_sorted=self.is_sorted)
         out = {}

@@ -57,10 +57,12 @@ class Pix2PixModel(BaseModel):
         # define networks (both generator and discriminator)
         opt_m = opt.model
         opt_t = opt.training
-        self.netG = networks.define_G(opt_m.input_nc, opt_m.output_nc, opt_m.ngf, opt_m.netG, opt_m.norm,
-                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch)
+        members = [attr for attr in dir(opt_m.out_ch) if not callable(getattr(opt_m.out_ch, attr)) and not attr.startswith("__")]
+        out_ch = {k: getattr(opt_m.out_ch, k) for k  in members}
+        self.netG = networks.define_G(opt_m.input_nc_G, opt_m.output_nc_G, opt_m.ngf, opt_m.netG, opt_m.norm,
+                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, out_ch)
 
-        self.netD = networks.define_D(opt_m.input_nc + opt_m.output_nc, opt_m.ndf, opt_m.netD,
+        self.netD = networks.define_D(opt_m.input_nc_D, opt_m.ndf, opt_m.netD,
                                         opt_m.n_layers_D, opt_m.norm, opt_m.init_type, opt_m.init_gain, self.gpu_ids)
 
         # define loss functions
@@ -114,7 +116,7 @@ class Pix2PixModel(BaseModel):
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         out = self.netG(self.real_A) # G(A)
-        self.fake_B = self.out[self.opt.model.modality_B]
+        self.fake_B = out[self.opt.model.modality_B]
         for k , v in out.items():
             setattr(self, 'synth_' + k , v)
         
@@ -140,9 +142,9 @@ class Pix2PixModel(BaseModel):
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         # Second, G(A) = B
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B)
-        self.loss_mask_bce = self.BCEwithLogit(self.mask_logit.squeeze(), self.mask)
+        self.loss_mask_bce = self.BCEwithLogit(self.synth_mask_logit, self.real_mask)
         if is_eval:
-            self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, self.mask)
+            self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
         # combine loss and calculate gradients
         self.loss_G = self.loss_G_GAN * self.opt.model.lambda_LGAN + self.loss_G_L1 * self.opt.model.lambda_L1 + self.loss_mask_bce * self.opt.model.lambda_mask
         

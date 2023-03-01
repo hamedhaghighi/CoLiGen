@@ -19,7 +19,7 @@ training:
   verbose: False
   suffix : ''
   val_split_ratio: 0.2
-  seed: 10
+  seed: 6
   n_workers: 2
   calc_FID: False
   lr_policy: 'linear'
@@ -28,8 +28,9 @@ training:
 model:
   # model params
   name: 'pix2pix'
-  input_nc: 1
-  output_nc: 2
+  input_nc_G: 1
+  output_nc_G: 2
+  input_nc_D: 2
   modality_A: ['label']
   modality_B: 'inv'
   out_ch:
@@ -57,10 +58,6 @@ dataset:
   dataset_A:
     data_dir: '/media/hamed/Local Disk/Phd_datasets/KITTI/dataset'
     modality: ['depth', 'label']
-    fov_up: 3
-    fov_down: -25 
-    foh_left: 45
-    foh_right: -45
     min_depth: 0.9
     max_depth: 120.0
     is_sorted: True
@@ -83,7 +80,7 @@ dataset:
       31: 7     # "bicyclist"
       32: 8     # "motorcyclist"
       40: 9     # "road"
-      44: 11    # "parking" mapped to "sidewalk" -------------------------------------- mapped
+      44: 10    # "parking"
       48: 11    # "sidewalk"
       49: 12    # "other-ground"
       50: 13    # "building"
@@ -91,7 +88,7 @@ dataset:
       52: 0     # "other-structure" mapped to "unlabeled" ------------------mapped
       60: 9     # "lane-marking" to "road" ---------------------------------mapped
       70: 15    # "vegetation"
-      71: 15    # "trunk" mapped to "vegetation"
+      71: 16    # "trunk"
       72: 17    # "terrain"
       80: 18    # "pole"
       81: 19    # "traffic-sign"
@@ -115,11 +112,13 @@ dataset:
       7: 31     # "bicyclist"
       8: 32     # "motorcyclist"
       9: 40     # "road"
+      10: 44     # "parking"
       11: 48    # "sidewalk"
       12: 49    # "other-ground"
       13: 50    # "building"
       14: 51    # "fence"
       15: 70    # "vegetation"
+      16: 71    # "vegetation"
       17: 72    # "terrain"
       18: 80    # "pole"
       19: 81    # "traffic-sign"
@@ -158,3 +157,24 @@ dataset:
       257: [250, 80, 100]
       258: [180, 30, 80]
       259: [255, 0, 0]
+    m_learning_map: # inverse of previous map
+      0: 0      # "unlabeled", and others ignored
+      1: 1     # "car"
+      2: 2     # "bicycle"
+      3: 3     # "motorcycle"
+      4: 4     # "truck"
+      5: 5     # "other-vehicle"
+      6: 6     # "person"
+      7: 7     # "bicyclist"
+      8: 8     # "motorcyclist"
+      9: 9     # "road"
+      10: 11     # "parking"
+      11: 11    # "sidewalk"
+      12: 12    # "other-ground"
+      13: 13    # "building"
+      14: 14    # "fence"
+      15: 15    # "vegetation"
+      16: 15    # "trunk"
+      17: 17    # "terrain"
+      18: 18    # "pole"
+      19: 19    # "traffic-sign"

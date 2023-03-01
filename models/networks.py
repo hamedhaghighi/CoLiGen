@@ -568,28 +568,34 @@ class UnetSkipConnectionBlock(nn.Module):
             use_bias = norm_layer == nn.InstanceNorm2d
         if input_nc is None:
             input_nc = outer_nc
-        downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4,
-                             stride=2, padding=1, bias=use_bias)
+            
+        
         downrelu = nn.LeakyReLU(0.2, True)
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
 
         if outermost:
+            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=(3, 4),
+                             stride=(1, 2), padding=(1, 1), bias=use_bias)
             upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
-                                        kernel_size=4, stride=2,
-                                        padding=1)
+                                        kernel_size=(3, 4), stride=(1, 2),
+                                        padding=(1, 1))
             down = [downconv]
             up = [uprelu, upconv]
             model = down + [submodule] + up
         elif innermost:
+            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=(3, 4),
+                             stride=(1, 2), padding=(1, 1), bias=use_bias)
             upconv = nn.ConvTranspose2d(inner_nc, outer_nc,
-                                        kernel_size=4, stride=2,
-                                        padding=1, bias=use_bias)
+                                        kernel_size=(3, 4), stride=(1, 2),
+                                        padding=(1, 1), bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
+            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4,
+                             stride=2, padding=1, bias=use_bias)
             upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
                                         kernel_size=4, stride=2,
                                         padding=1, bias=use_bias)

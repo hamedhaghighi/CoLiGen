@@ -50,7 +50,7 @@ class M_parser():
 
 
 def modify_opt_for_fast_test(opt):
-    opt.n_epochs = 2 
+    opt.n_epochs = 1
     opt.epoch_decay = opt.n_epochs//2
     opt.display_freq = 1
     opt.print_freq = 1
@@ -76,13 +76,13 @@ if __name__ == '__main__':
         modify_opt_for_fast_test(opt.training)
 
     lidar = LiDAR(
-    num_ring=opt.dataset.dataset_A.img_prop.width,
-    num_points=opt.dataset.dataset_A.img_prop.height,
+    num_ring=opt.dataset.dataset_A.img_prop.height,
+    num_points=opt.dataset.dataset_A.img_prop.width,
     min_depth=opt.dataset.dataset_A.min_depth,
     max_depth=opt.dataset.dataset_A.max_depth,
     angle_file=os.path.join(opt.dataset.dataset_A.data_dir, "angles.pt"),
     )
-    # lidar.to(device)
+    lidar.to('cuda')
     model = create_model(opt, lidar)      # create a model given opt.model and other options
     model.setup(opt.training)               # regular setup: load and print networks; create schedulers
     visualizer = Visualizer(opt.training, lidar)   # create a visualizer that display/save images and plots
@@ -106,8 +106,8 @@ if __name__ == '__main__':
         model.train(True)
         train_dl = iter(train_dl)
         valid_dl = iter(val_dl)
-        n_train_batch = len(train_dl)
-        n_valid_batch = len(val_dl)
+        n_train_batch = 2 if opt.training.fast_test else len(train_dl)
+        n_valid_batch = 2 if opt.training.fast_test else  len(val_dl)
         
         train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
         for _ in range(n_train_batch):  # inner loop within one epoch
@@ -118,15 +118,15 @@ if __name__ == '__main__':
             model.set_input_PCL(data)         # unpack data from dataset and apply preprocessing
             model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
-            if g_steps % opt.display_freq == 0:   # display images on visdom and save images to a HTML file
+            if g_steps % opt.training.display_freq == 0:   # display images on visdom and save images to a HTML file
                 visualizer.display_current_results('train', model.get_current_visuals(), g_steps, data_maps)
 
-            if g_steps % opt.print_freq == 0:    # print training losses and save logging information to the disk
+            if g_steps % opt.training.print_freq == 0:    # print training losses and save logging information to the disk
                 losses = model.get_current_losses(is_eval=True)
                 visualizer.print_current_losses('train', epoch, e_steps, losses, train_tq)
                 visualizer.plot_current_losses('train', epoch, losses, g_steps)
 
-            if g_steps % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
+            if g_steps % opt.training.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
                 train_tq.write('saving the latest model (epoch %d, total_iters %d)' % (epoch, g_steps))
                 save_suffix = 'latest'
                 model.save_networks(save_suffix)

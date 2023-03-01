@@ -24,12 +24,11 @@ else:
 def visualize_tensor(pts, depth):
 
     # depth_range = np.exp2(lidar_range*6)-1
-    intensity_color = plt.cm.viridis(np.clip(depth, 0, 1).flatten())
+    color = plt.cm.viridis(np.clip(depth, 0, 1).flatten())
     # pts, mask = range_image_to_point_cloud(depth, intensity, H, W)
     # mask out invalid points
-    
     xyz = pts
-    color = intensity_color[..., :3]
+    color = color[..., :3]
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz[:, :3])
     pcd.colors = o3d.utility.Vector3dVector(color)
@@ -37,7 +36,7 @@ def visualize_tensor(pts, depth):
     #                               lookat=[0.0, 0.0, 0.0],
     #                               up=[1.0, 0.0, 0.0])
     # offscreen rendering
-    render = rendering.OffscreenRenderer(480, 270)
+    render = rendering.OffscreenRenderer(1920, 1080)
     mtl = rendering.MaterialRecord()
     mtl.base_color = [1, 1, 1, 0.5]
     mtl.point_size = 4
@@ -127,24 +126,28 @@ class Visualizer():
         self.saved = False
 
     def log_imgs(self, tensor, tag, step, color=True):
-        grid = make_grid(tensor.detach(), nrow=4)
+        B = tensor.shape[0]
+        nrow = 4 if B > 8 else 1
+        grid = make_grid(tensor.detach(), nrow=nrow)
         grid = grid.cpu().numpy()  # CHW
         if color:
             grid = grid[0]  # HW
             grid = colorize(grid).transpose(2, 0, 1)  # CHW
+        else:
+            grid = grid.astype(np.uint8)
         self.writer.add_image(tag, grid, step)
 
     def display_current_results(self, phase, visuals, g_step, data_maps):
-        visuals = postprocess(visuals, self.lidar, data_maps)
+        visuals = postprocess(visuals, self.lidar, data_maps=data_maps)
         for k , v in visuals.items():
-            if 'points' in visuals:
+            if 'points' in k:
                 points = flatten(v)
                 inv = visuals['real_inv'] if 'real' in k else visuals['synth_inv']
                 image_list = []
                 for i in range(points.shape[0]):
                     _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5)
                     image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
-                visuals[k] = torch.stack(image_list, dim=0)
+                visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
         for k , img_tensor in visuals.items():
             color = False if ('points' in k or 'label' in k) else True
             self.log_imgs(img_tensor, phase + '/' + k, g_step, color)
