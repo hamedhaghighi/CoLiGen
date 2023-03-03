@@ -13,7 +13,7 @@ import tqdm
 import os
 from util.lidar import LiDAR
 from collections import defaultdict
-
+import shutil
 
 def cycle(iterable):
     while True:
@@ -57,14 +57,37 @@ def modify_opt_for_fast_test(opt):
     opt.save_latest_freq = 100
     opt.max_dataset_size = 10
     opt.batch_size = 2
-    opt.name = 'test'
 
+def check_exp_exists(opt, cfg_path):
+    opt_t = opt.training
+    opt_m = opt.model
+    opt_d = opt.dataset.dataset_A
+    modality_A = '_'.join(opt_m.modality_A)
+    out_ch = ''
+    for k in [attr for attr in dir(opt_m.out_ch) if not attr.startswith("__")]:
+        out_ch += f'{k}_{getattr(opt_m.out_ch, k)}_'
+        
+    opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}'
+    print(opt_t.name)
+    exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
+    if not opt_t.continue_train:
+        if os.path.exists(exp_dir):
+            reply = ''
+            
+            while not reply.startswith('y') and not reply.startswith('n'):
+                reply = str(input(f'exp_dir {exp_dir} exists. Do you want to delete it? (y/n): \n')).lower().strip()
+            if reply.startswith('y'):
+                shutil.rmtree(exp_dir)
+            else:
+                print('Please Re-run the program with \"continue train\" enabled')
+                exit(0)
+        os.makedirs(exp_dir, exist_ok=True)
+        shutil.copy(cfg_path, exp_dir)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg_train', type=str, help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
-    
 
     cl_args = parser.parse_args()
     opt = M_parser(cl_args.cfg_train, cl_args.data_dir)
@@ -74,6 +97,7 @@ if __name__ == '__main__':
     ## test whole code fast
     if opt.training.fast_test:
         modify_opt_for_fast_test(opt.training)
+    check_exp_exists(opt, cl_args.cfg_train)
 
     lidar = LiDAR(
     num_ring=opt.dataset.dataset_A.img_prop.height,
@@ -104,14 +128,14 @@ if __name__ == '__main__':
         visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
         model.update_learning_rate()    # update learning rates in the beginning of every epoch.
         model.train(True)
-        train_dl = iter(train_dl)
-        valid_dl = iter(val_dl)
+        train_dl_iter = iter(train_dl)
+        val_dl_iter = iter(val_dl)
         n_train_batch = 2 if opt.training.fast_test else len(train_dl)
         n_valid_batch = 2 if opt.training.fast_test else  len(val_dl)
         
         train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
         for _ in range(n_train_batch):  # inner loop within one epoch
-            data = next(train_dl)
+            data = next(train_dl_iter)
             iter_start_time = time.time()  # timer for computation per iteration
             g_steps += 1
             e_steps += 1
@@ -139,7 +163,7 @@ if __name__ == '__main__':
         dis_batch_ind = np.random.randint(0, n_valid_batch)
         generated_remission = []
         for i in range(n_valid_batch):
-            data = next(valid_dl)
+            data = next(val_dl_iter)
             model.set_input_PCL(data)
             with torch.no_grad():
                 model.evaluate_model()

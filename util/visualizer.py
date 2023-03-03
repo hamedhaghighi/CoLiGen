@@ -14,6 +14,8 @@ from util import colorize, postprocess, flatten
 import open3d as o3d
 import open3d.visualization.rendering as rendering
 import torch
+from glob import glob
+import yaml
 
 if sys.version_info[0] == 2:
     VisdomExceptionBase = Exception
@@ -36,7 +38,7 @@ def visualize_tensor(pts, depth):
     #                               lookat=[0.0, 0.0, 0.0],
     #                               up=[1.0, 0.0, 0.0])
     # offscreen rendering
-    render = rendering.OffscreenRenderer(1920, 1080)
+    render = rendering.OffscreenRenderer(1920, 1080, headless=True)
     mtl = rendering.MaterialRecord()
     mtl.base_color = [1, 1, 1, 0.5]
     mtl.point_size = 4
@@ -101,19 +103,9 @@ class Visualizer():
         Step 4: create a logging file to store training losses
         """
         self.lidar = lidar
-        exp_name = os.path.join(opt.checkpoints_dir, opt.name)
-        if not opt.continue_train:
-            if os.path.exists(exp_name):
-                reply = ''
-                
-                while not reply.startswith('y') and not reply.startswith('n'):
-                    reply = str(input(f'exp_name {exp_name} exists. Do you want to delete it? (y/n): \n')).lower().strip()
-                if reply.startswith('y'):
-                    shutil.rmtree(exp_name)
-                else:
-                    exit(0)
+        exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
         if opt.isTrain:
-            self.tb_dir = os.path.join(exp_name +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+            self.tb_dir = os.path.join(exp_dir +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
             os.makedirs(self.tb_dir, exist_ok=True)
             self.writer = SummaryWriter(self.tb_dir)
             self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')

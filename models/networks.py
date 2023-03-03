@@ -534,7 +534,7 @@ class UnetGenerator(nn.Module):
                 output_dict['inv_orig'] = inv
                 output_dict['inv'] = mask * inv + (1 - mask) * -1
             if 'reflectance' in output_dict:
-                r = torch.tanh(output['reflectance'])
+                r = torch.tanh(output_dict['reflectance'])
                 output_dict['reflectance'] = mask * r + (1 - mask) * -1
         
         return output_dict

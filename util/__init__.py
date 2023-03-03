@@ -112,13 +112,14 @@ def cycle(iterable):
 
 
 
-def postprocess(synth, lidar, tol=1e-8, normal_mode="closest", data_maps=None):
+def postprocess(synth, lidar, tol=1e-8, data_maps=None):
 
     out = {}
     for key, value in synth.items():
         if 'inv' in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
-            out[key + "_points"] = lidar.inv_to_xyz(out[key], tol)
+            if not 'inv_orig' in key:
+                out[key + "_points"] = lidar.inv_to_xyz(out[key], tol)
         elif "reflectance" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:

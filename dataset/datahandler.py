@@ -149,8 +149,6 @@ class BinaryScan(Dataset):
 
   def __init__(self, data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size=-1):
     # save deats
-    # self.datasetA = UnaryScan(data_dirA, data_statsA, max_dataset_size)
-    # self.datasetB = UnaryScan(data_dirB, data_statsB, max_dataset_size)
     self.sizeA = len(data_statsA)
     self.sizeB = len(data_statsB)
     
@@ -207,7 +205,6 @@ def get_data_loader(cfg, split, batch_size):
         is_raw=cfg.is_raw,
         fill_in_label=cfg.fill_in_label
     )
-
   loader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,
                                                     shuffle= (split == 'train'),
                                                     num_workers=4)

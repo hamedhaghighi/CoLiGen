@@ -3,6 +3,7 @@ from .base_model import BaseModel
 from . import networks
 from util.util import SSIM
 from util import sigmoid_to_tanh
+import numpy as np
 
 class Pix2PixModel(BaseModel):
     """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
@@ -48,7 +49,7 @@ class Pix2PixModel(BaseModel):
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake', 'mask_bce']
         self.extra_val_loss_names = ['ssim']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask']
+        self.visual_names = ['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask', 'real_reflectance', 'synth_reflectance']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
             self.model_names = ['G', 'D']
@@ -57,12 +58,16 @@ class Pix2PixModel(BaseModel):
         # define networks (both generator and discriminator)
         opt_m = opt.model
         opt_t = opt.training
+        input_nc_G = len(opt_m.modality_A)
         members = [attr for attr in dir(opt_m.out_ch) if not callable(getattr(opt_m.out_ch, attr)) and not attr.startswith("__")]
+        out_ch_values = [getattr(opt_m.out_ch, k) for k in members]
+        output_nc_G = np.array(out_ch_values).sum()
+        input_nc_D = len(opt_m.modality_B)
         out_ch = {k: getattr(opt_m.out_ch, k) for k  in members}
-        self.netG = networks.define_G(opt_m.input_nc_G, opt_m.output_nc_G, opt_m.ngf, opt_m.netG, opt_m.norm,
+        self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.norm,
                                       not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, out_ch)
 
-        self.netD = networks.define_D(opt_m.input_nc_D, opt_m.ndf, opt_m.netD,
+        self.netD = networks.define_D(input_nc_D + input_nc_G, opt_m.ndf, opt_m.netD,
                                         opt_m.n_layers_D, opt_m.norm, opt_m.init_type, opt_m.init_gain, self.gpu_ids)
 
         # define loss functions
@@ -104,10 +109,14 @@ class Pix2PixModel(BaseModel):
         for m in self.opt.model.modality_A:
             assert m in data
             data_list.append(data[m])
-        
-        self.real_A = torch.cat(data_list)
-        self.real_B = data[self.opt.model.modality_B]
+        self.real_A = torch.cat(data_list, dim=1)
 
+        data_list = []
+        for m in self.opt.model.modality_B:
+            assert m in data
+            data_list.append(data[m])
+        self.real_B = torch.cat(data_list, dim=1)
+        
     def evaluate_model(self):
         self.forward()
         self.calc_loss_D()
@@ -116,7 +125,11 @@ class Pix2PixModel(BaseModel):
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         out = self.netG(self.real_A) # G(A)
-        self.fake_B = out[self.opt.model.modality_B]
+        data_list = []
+        for m in self.opt.model.modality_B:
+            assert m in out
+            data_list.append(out[m])
+        self.fake_B = torch.cat(data_list, dim=1)
         for k , v in out.items():
             setattr(self, 'synth_' + k , v)
         
@@ -144,7 +157,8 @@ class Pix2PixModel(BaseModel):
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B)
         self.loss_mask_bce = self.BCEwithLogit(self.synth_mask_logit, self.real_mask)
         if is_eval:
-            self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
+            # self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
+            self.loss_ssim = 0.0
         # combine loss and calculate gradients
         self.loss_G = self.loss_G_GAN * self.opt.model.lambda_LGAN + self.loss_G_L1 * self.opt.model.lambda_L1 + self.loss_mask_bce * self.opt.model.lambda_mask
         
