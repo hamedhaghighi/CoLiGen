@@ -113,7 +113,6 @@ def cycle(iterable):
 
 
 def postprocess(synth, lidar, tol=1e-8, data_maps=None):
-
     out = {}
     for key, value in synth.items():
         if 'inv' in key:

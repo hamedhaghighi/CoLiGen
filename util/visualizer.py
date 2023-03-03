@@ -104,27 +104,27 @@ class Visualizer():
         """
         self.lidar = lidar
         exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
-        if opt.isTrain:
-            self.tb_dir = os.path.join(exp_dir +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-            os.makedirs(self.tb_dir, exist_ok=True)
-            self.writer = SummaryWriter(self.tb_dir)
-            self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
-            with open(self.log_name, "a") as log_file:
-                now = time.strftime("%c")
-                log_file.write('================ Training Loss (%s) ================\n' % now)
+
+        self.tb_dir = os.path.join(exp_dir +('/TB/' if opt.isTrain else '/TB_test/'), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        os.makedirs(self.tb_dir, exist_ok=True)
+        self.writer = SummaryWriter(self.tb_dir)
+        self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
+        with open(self.log_name, "a") as log_file:
+            now = time.strftime("%c")
+            log_file.write('================ Training Loss (%s) ================\n' % now)
 
     def reset(self):
         """Reset the self.saved status"""
         self.saved = False
 
-    def log_imgs(self, tensor, tag, step, color=True):
+    def log_imgs(self, tensor, tag, step, color=True, cmap='turbo'):
         B = tensor.shape[0]
         nrow = 4 if B > 8 else 1
         grid = make_grid(tensor.detach(), nrow=nrow)
         grid = grid.cpu().numpy()  # CHW
         if color:
             grid = grid[0]  # HW
-            grid = colorize(grid).transpose(2, 0, 1)  # CHW
+            grid = colorize(grid, cmap=cmap).transpose(2, 0, 1)  # CHW
         else:
             grid = grid.astype(np.uint8)
         self.writer.add_image(tag, grid, step)
@@ -142,32 +142,8 @@ class Visualizer():
                 visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
         for k , img_tensor in visuals.items():
             color = False if ('points' in k or 'label' in k) else True
-            self.log_imgs(img_tensor, phase + '/' + k, g_step, color)
-    # def display_current_results(self, phase, visuals, g_step):
-    #     """Display current results on visdom; save current results to an HTML file.
-
-    #     Parameters:
-    #         visuals (OrderedDict) - - dictionary of images to display or save
-    #         epoch (int) - - the current epoch
-    #         save_result (bool) - - if save the current results to an HTML file
-    #     """
-
-    #     for k , img in visuals.items():
-    #         if k == 'real_A' and img.shape[1] == 6:
-    #             rgb = img[:, 3:]
-    #             fig = plt.figure()
-    #             for i in range(min(2, rgb.shape[0])):
-    #                 plt.subplot(1, 2, i+1)
-    #                 plt.imshow((rgb[i]*0.5 + 0.5).permute(1, 2, 0).cpu().detach().numpy())
-    #             self.writer.add_figure(phase + '/' + 'real_rgb', fig, g_step, True)
-    #             img = img[:, :3]      
-    #         for j in range(img.shape[1]):
-    #             fig = plt.figure()
-    #             for i in range(min(2, img.shape[0])):
-    #                 plt.subplot(1, 2, i+1)
-    #                 plt.imshow((img[i][j]*0.5 + 0.5).cpu().detach().numpy(),\
-    #                      cmap='inferno' if k == 'range' else 'cividis', vmin=0.0, vmax=1.0)
-    #             self.writer.add_figure(phase + '/' + k + str(j), fig, g_step, True)
+            cmap = 'viridis' if ('reflectance' in k) else 'turbo'
+            self.log_imgs(img_tensor, phase + '/' + k, g_step, color, cmap)
 
     def plot_current_losses(self, phase, epoch, losses, g_step):
         """display the current losses on visdom display: dictionary of error labels and values

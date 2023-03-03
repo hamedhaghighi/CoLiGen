@@ -17,9 +17,9 @@ from scipy import ndimage as nd
 
 CONFIG = {
     "split": {
-        "train": [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
+        "train": [0, 1, 2, 3, 4, 5, 6, 7, 9],
         "val": [8],
-        "test": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+        "test": [10],
         "custom_carla": [0]
     },
 }
@@ -80,7 +80,7 @@ class KITTIOdometry(torch.utils.data.Dataset):
         self.labels_list = labels_list
 
     def preprocess(self, out):
-        out["depth"] = np.linalg.norm(out["xyz"], ord=2, axis=2)
+        out["depth"] = np.linalg.norm(out["points"], ord=2, axis=2)
         if 'label' in out and self.fill_in_label:
           fill_in_mask = ~ (out["depth"] > 0.0)
           out['label'] = self.fill(out['label'], fill_in_mask)
@@ -93,7 +93,7 @@ class KITTIOdometry(torch.utils.data.Dataset):
         out["depth"] -= self.min_depth
         out["depth"] /= self.max_depth - self.min_depth
         out["mask"] = mask
-        out["xyz"] /= self.max_depth  # unit space
+        out["points"] /= self.max_depth  # unit space
         for key in out.keys():
           if key == 'label' and self.fill_in_label:
             continue
@@ -126,7 +126,7 @@ class KITTIOdometry(torch.utils.data.Dataset):
             points, _ = point_cloud_to_xyz_image(np.concatenate([point_cloud, sem_label.astype('float32')[:, None]], axis=1) \
               , H=self.shape[0], W=2048, is_sorted=self.is_sorted)
         out = {}
-        out["xyz"] = points[..., :3]
+        out["points"] = points[..., :3]
         if "reflectance" in self.modality:
             out["reflectance"] = points[..., [3]]
         if "label" in self.modality:

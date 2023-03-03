@@ -1,9 +1,12 @@
 import torch
+import numpy as np
 from .base_model import BaseModel
 from . import networks
+from util import flatten, postprocess
 from util.util import SSIM
-from util import sigmoid_to_tanh
-import numpy as np
+from util import sigmoid_to_tanh, tanh_to_sigmoid
+from util.metrics.cov_mmd_1nna import compute_cd
+from util.metrics.depth import compute_depth_accuracy, compute_depth_error
 
 class Pix2PixModel(BaseModel):
     """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
@@ -47,7 +50,7 @@ class Pix2PixModel(BaseModel):
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake', 'mask_bce']
-        self.extra_val_loss_names = ['ssim']
+        self.eval_metrics = ['cd', 'depth_accuracies', 'depth_errors']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask', 'real_reflectance', 'synth_reflectance']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
@@ -89,7 +92,7 @@ class Pix2PixModel(BaseModel):
         inv = self.lidar.invert_depth(data["depth"])
         inv = sigmoid_to_tanh(inv)  # [-1,1]
         inv = mask * inv + (1 - mask) * -1
-        batch = {'inv': inv, 'mask': mask}
+        batch = {'inv': inv, 'mask': mask, 'depth': data['depth'], 'points': data['points']}
         if 'reflectance' in data:
             reflectance =  data["reflectance"] # [0, 1]
             reflectance = sigmoid_to_tanh(reflectance)
@@ -157,8 +160,20 @@ class Pix2PixModel(BaseModel):
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B)
         self.loss_mask_bce = self.BCEwithLogit(self.synth_mask_logit, self.real_mask)
         if is_eval:
+            points_gen = self.lidar.inv_to_xyz(tanh_to_sigmoid(self.synth_inv))
+            points_ref = flatten(self.real_points)
+            points_gen = flatten(points_gen)
+            depth_ref = self.lidar.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
+            depth_gen = self.lidar.revert_depth(tanh_to_sigmoid(self.synth_inv), norm=False)
+            if 'cd' in self.eval_metrics:
+                self.cd = compute_cd(points_ref, points_gen).mean().item()
+            if 'depth_accuracies' in self.eval_metrics:
+                accuracies = compute_depth_accuracy(depth_ref, depth_gen)
+                self.depth_accuracies = {k: v.mean().item() for k ,v in accuracies.items()}
+            if 'depth_errors' in self.eval_metrics:
+                errors = compute_depth_error(depth_ref, depth_gen)
+                self.depth_errors = {k: v.mean().item() for k ,v in errors.items()}
             # self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
-            self.loss_ssim = 0.0
         # combine loss and calculate gradients
         self.loss_G = self.loss_G_GAN * self.opt.model.lambda_LGAN + self.loss_G_L1 * self.opt.model.lambda_L1 + self.loss_mask_bce * self.opt.model.lambda_mask
         

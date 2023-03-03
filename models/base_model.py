@@ -84,7 +84,7 @@ class BaseModel(ABC):
         """
         if self.isTrain:
             self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
-        if not self.isTrain or opt.continue_train:
+        if not self.isTrain or opt.continue_train or opt.test:
             self.load_networks(opt.epoch)
         self.print_networks(opt.verbose)
 
@@ -135,13 +135,18 @@ class BaseModel(ABC):
 
     def get_current_losses(self, is_eval=False):
         """Return traning losses / errors. train.py will print out these errors on console, and save them to a file"""
-        loss_names = self.loss_names.copy()
-        if is_eval:
-            loss_names.extend(self.extra_val_loss_names)
         errors_ret = OrderedDict()
-        for name in loss_names:
-            if isinstance(name, str):
-                errors_ret[name] = float(getattr(self, 'loss_' + name))  # float(...) works for both scalar tensor and float number
+        if is_eval:
+            for name in self.eval_metrics:
+                value = getattr(self, name)
+                if isinstance(value, (int, float)):
+                    errors_ret[name] = float(value)
+                elif isinstance(value, dict):
+                    for k , v in value.items():
+                        errors_ret[k] = float(v)
+        else:
+            for name in self.loss_names:
+                errors_ret[name] = float(getattr(self, 'loss_' + name)) 
         return errors_ret
 
     def save_networks(self, epoch):

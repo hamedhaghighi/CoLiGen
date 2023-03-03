@@ -15,6 +15,7 @@ from util.lidar import LiDAR
 from collections import defaultdict
 import shutil
 
+
 def cycle(iterable):
     while True:
         for x in iterable:
@@ -43,8 +44,7 @@ class M_parser():
             setattr(self, m, getattr(dict_class, m))
         if data_dir != '':
             self.dataset.dataset_A.data_dir = data_dir
-        self.model.isTrain = True
-        self.training.isTrain = True
+        self.model.isTrain = self.training.isTrain = not self.training.test
         self.training.epoch_decay = self.training.n_epochs//2
 
 
@@ -54,9 +54,10 @@ def modify_opt_for_fast_test(opt):
     opt.epoch_decay = opt.n_epochs//2
     opt.display_freq = 1
     opt.print_freq = 1
-    opt.save_latest_freq = 100
+    opt.save_latest_freq = 1
     opt.max_dataset_size = 10
     opt.batch_size = 2
+
 
 def check_exp_exists(opt, cfg_path):
     opt_t = opt.training
@@ -67,10 +68,10 @@ def check_exp_exists(opt, cfg_path):
     for k in [attr for attr in dir(opt_m.out_ch) if not attr.startswith("__")]:
         out_ch += f'{k}_{getattr(opt_m.out_ch, k)}_'
         
-    opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}'
-    print(opt_t.name)
+    opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
+        + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}'
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
-    if not opt_t.continue_train:
+    if not opt_t.continue_train and opt_t.isTrain:
         if os.path.exists(exp_dir):
             reply = ''
             
@@ -83,11 +84,14 @@ def check_exp_exists(opt, cfg_path):
                 exit(0)
         os.makedirs(exp_dir, exist_ok=True)
         shutil.copy(cfg_path, exp_dir)
+    else:
+        assert os.path.exists(exp_dir)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg_train', type=str, help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
+
 
     cl_args = parser.parse_args()
     opt = M_parser(cl_args.cfg_train, cl_args.data_dir)
@@ -95,8 +99,12 @@ if __name__ == '__main__':
     np.random.seed(opt.training.seed)
     # DATA = yaml.safe_load(open(pa.cfg_dataset, 'r'))
     ## test whole code fast
-    if opt.training.fast_test:
+    if opt.training.fast_test and opt.training.isTrain:
         modify_opt_for_fast_test(opt.training)
+
+    if not opt.training.isTrain:
+        opt.training.n_epochs = 1
+
     check_exp_exists(opt, cl_args.cfg_train)
 
     lidar = LiDAR(
@@ -113,7 +121,7 @@ if __name__ == '__main__':
     g_steps = 0
 
     train_dl, train_dataset = get_data_loader(opt.dataset, 'train', opt.training.batch_size)
-    val_dl, _ = get_data_loader(opt.dataset, 'val', opt.training.batch_size)
+    val_dl, _ = get_data_loader(opt.dataset, 'val' if opt.training.isTrain else 'test', opt.training.batch_size)  
 
     fid_cls = FID(train_dataset, opt.dataset.dataset_A.data_dir) if opt.training.calc_FID else None
 
@@ -125,44 +133,44 @@ if __name__ == '__main__':
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
         e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
-        visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
-        model.update_learning_rate()    # update learning rates in the beginning of every epoch.
-        model.train(True)
-        train_dl_iter = iter(train_dl)
+        if opt.training.isTrain:
+            visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
+            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
+            model.train(True)
+            train_dl_iter = iter(train_dl)
+            n_train_batch = 2 if opt.training.fast_test else len(train_dl)
+            train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
+            for _ in range(n_train_batch):  # inner loop within one epoch
+                data = next(train_dl_iter)
+                iter_start_time = time.time()  # timer for computation per iteration
+                g_steps += 1
+                e_steps += 1
+                model.set_input_PCL(data)         # unpack data from dataset and apply preprocessing
+                model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
+
+                if g_steps % opt.training.display_freq == 0:   # display images on visdom and save images to a HTML file
+                    visualizer.display_current_results('train', model.get_current_visuals(), g_steps, data_maps)
+
+                if g_steps % opt.training.print_freq == 0:    # print training losses and save logging information to the disk
+                    losses = model.get_current_losses(is_eval=True)
+                    visualizer.print_current_losses('train', epoch, e_steps, losses, train_tq)
+                    visualizer.plot_current_losses('train', epoch, losses, g_steps)
+
+                if g_steps % opt.training.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
+                    train_tq.write('saving the latest model (epoch %d, total_iters %d)' % (epoch, g_steps))
+                    save_suffix = 'latest'
+                    model.save_networks(save_suffix)
+                train_tq.update(1)
+
         val_dl_iter = iter(val_dl)
-        n_train_batch = 2 if opt.training.fast_test else len(train_dl)
-        n_valid_batch = 2 if opt.training.fast_test else  len(val_dl)
-        
-        train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
-        for _ in range(n_train_batch):  # inner loop within one epoch
-            data = next(train_dl_iter)
-            iter_start_time = time.time()  # timer for computation per iteration
-            g_steps += 1
-            e_steps += 1
-            model.set_input_PCL(data)         # unpack data from dataset and apply preprocessing
-            model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
-
-            if g_steps % opt.training.display_freq == 0:   # display images on visdom and save images to a HTML file
-                visualizer.display_current_results('train', model.get_current_visuals(), g_steps, data_maps)
-
-            if g_steps % opt.training.print_freq == 0:    # print training losses and save logging information to the disk
-                losses = model.get_current_losses(is_eval=True)
-                visualizer.print_current_losses('train', epoch, e_steps, losses, train_tq)
-                visualizer.plot_current_losses('train', epoch, losses, g_steps)
-
-            if g_steps % opt.training.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
-                train_tq.write('saving the latest model (epoch %d, total_iters %d)' % (epoch, g_steps))
-                save_suffix = 'latest'
-                model.save_networks(save_suffix)
-            train_tq.update(1)
-
+        n_val_batch = 2 if opt.training.fast_test else  len(val_dl)
         ##### Do validation ....    
         val_losses = defaultdict(list)
         model.train(False)
-        val_tq = tqdm.tqdm(total=n_valid_batch, desc='val_Iter', position=5)
-        dis_batch_ind = np.random.randint(0, n_valid_batch)
+        val_tq = tqdm.tqdm(total=n_val_batch, desc='val_Iter', position=5)
+        dis_batch_ind = np.random.randint(0, n_val_batch)
         generated_remission = []
-        for i in range(n_valid_batch):
+        for i in range(n_val_batch):
             data = next(val_dl_iter)
             model.set_input_PCL(data)
             with torch.no_grad():
@@ -184,7 +192,6 @@ if __name__ == '__main__':
             visualizer.plot_current_losses('val', epoch, {'FID':fid_score}, g_steps)
 
         losses = {k: np.array(v).mean() for k , v in val_losses.items()}
-        
         visualizer.plot_current_losses('val', epoch, losses, g_steps)
         visualizer.print_current_losses('val', epoch, e_steps, losses, val_tq)
         epoch_tq.update(1)
