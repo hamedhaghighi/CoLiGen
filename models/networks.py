@@ -547,7 +547,7 @@ class UnetSkipConnectionBlock(nn.Module):
     """
 
     def __init__(self, outer_nc, inner_nc, input_nc=None,
-                 submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False):
+                 submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_dropout=False, same_size_kernel=True):
         """Construct a Unet submodule with skip connections.
 
         Parameters:
@@ -574,31 +574,23 @@ class UnetSkipConnectionBlock(nn.Module):
         downnorm = norm_layer(inner_nc)
         uprelu = nn.ReLU(True)
         upnorm = norm_layer(outer_nc)
-
+        k = (4, 4) if same_size_kernel else (3, 4)
+        s = (2, 2) if same_size_kernel else (1, 2)
         if outermost:
-            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=(3, 4),
-                             stride=(1, 2), padding=(1, 1), bias=use_bias)
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
-                                        kernel_size=(3, 4), stride=(1, 2),
-                                        padding=(1, 1))
+            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=k, stride=s, padding=(1, 1), bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=k, stride=s, padding=(1, 1))
             down = [downconv]
             up = [uprelu, upconv]
             model = down + [submodule] + up
         elif innermost:
-            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=(3, 4),
-                             stride=(1, 2), padding=(1, 1), bias=use_bias)
-            upconv = nn.ConvTranspose2d(inner_nc, outer_nc,
-                                        kernel_size=(3, 4), stride=(1, 2),
-                                        padding=(1, 1), bias=use_bias)
+            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=k, stride=s, padding=(1, 1), bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=k, stride=s, padding=(1, 1), bias=use_bias)
             down = [downrelu, downconv]
             up = [uprelu, upconv, upnorm]
             model = down + up
         else:
-            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4,
-                             stride=2, padding=1, bias=use_bias)
-            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
-                                        kernel_size=4, stride=2,
-                                        padding=1, bias=use_bias)
+            downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
+            upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
             down = [downrelu, downconv, downnorm]
             up = [uprelu, upconv, upnorm]
 
