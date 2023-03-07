@@ -4,7 +4,7 @@ from .base_model import BaseModel
 from . import networks
 from util import flatten, postprocess
 from util.util import SSIM
-from util import sigmoid_to_tanh, tanh_to_sigmoid
+from util import *
 from util.metrics.cov_mmd_1nna import compute_cd
 from util.metrics.depth import compute_depth_accuracy, compute_depth_error
 
@@ -50,17 +50,25 @@ class Pix2PixModel(BaseModel):
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake', 'mask_bce']
-        self.eval_metrics = ['cd', 'depth_accuracies', 'depth_errors']
+        
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask', 'real_reflectance', 'synth_reflectance']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
             self.model_names = ['G', 'D']
         else:  # during test time, only load G
             self.model_names = ['G']
         # define networks (both generator and discriminator)
+        
         opt_m = opt.model
         opt_t = opt.training
+        self.visual_names = []
+        self.eval_metrics = ['cd', 'depth_accuracies', 'depth_errors'] 
+        
+        if 'inv' in opt_m.modality_B:
+            self.visual_names.extend(['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask'])
+        if 'reflectance' in opt_m.modality_B:
+            self.visual_names.extend(['real_reflectance', 'synth_reflectance'])
+            self.eval_metrics.append('reflectance_errors')
         input_nc_G = len(opt_m.modality_A)
         members = [attr for attr in dir(opt_m.out_ch) if not callable(getattr(opt_m.out_ch, attr)) and not attr.startswith("__")]
         out_ch_values = [getattr(opt_m.out_ch, k) for k in members]
@@ -80,32 +88,17 @@ class Pix2PixModel(BaseModel):
         self.BCEwithLogit = torch.nn.BCEWithLogitsLoss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.lidar = lidar
-
+        self.opt_m = opt_m
         if self.isTrain:
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt_t.lr, betas=(opt_m.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt_t.lr, betas=(opt_m.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
-    def fetch_reals(self, data):
-        mask = data["mask"].float()
-        inv = self.lidar.invert_depth(data["depth"])
-        inv = sigmoid_to_tanh(inv)  # [-1,1]
-        inv = mask * inv + (1 - mask) * -1
-        batch = {'inv': inv, 'mask': mask, 'depth': data['depth'], 'points': data['points']}
-        if 'reflectance' in data:
-            reflectance =  data["reflectance"] # [0, 1]
-            reflectance = sigmoid_to_tanh(reflectance)
-            reflectance = mask * reflectance + (1 - mask) * -1
-            batch['reflectance'] = reflectance
-        if 'label' in data:
-            batch['label'] = data['label']
-        for k , v in batch.items():
-            batch[k] = v.to(self.device)
-        return batch
+   
 
     def set_input_PCL(self, data):
-        data = self.fetch_reals(data)
+        data = fetch_reals(data, self.lidar, self.device)
         for k, v in data.items():
             setattr(self, 'real_' + k, v)
         data_list = []
@@ -122,8 +115,26 @@ class Pix2PixModel(BaseModel):
         
     def evaluate_model(self):
         self.forward()
-        self.calc_loss_D()
-        self.calc_loss_G(is_eval=True)
+        points_gen = self.lidar.inv_to_xyz(tanh_to_sigmoid(self.synth_inv))
+        points_gen = flatten(points_gen)
+        points_ref = flatten(self.real_points)
+        depth_ref = self.lidar.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
+        depth_gen = self.lidar.revert_depth(tanh_to_sigmoid(self.synth_inv), norm=False)
+        if 'cd' in self.eval_metrics:
+            self.cd = compute_cd(points_ref, points_gen).mean().item()
+        if 'depth_accuracies' in self.eval_metrics:
+            accuracies = compute_depth_accuracy(depth_ref, depth_gen)
+            self.depth_accuracies = {'depth/' + k: v.mean().item() for k ,v in accuracies.items()}
+        if 'depth_errors' in self.eval_metrics:
+            errors = compute_depth_error(depth_ref, depth_gen)
+            self.depth_errors = {'depth/' + k: v.mean().item() for k ,v in errors.items()}
+        if 'reflectance_errors' in self.eval_metrics and 'reflectance' in self.opt_m.modality_B:
+            reflectance_ref = tanh_to_sigmoid(self.real_reflectance) + 1e-8
+            reflectance_gen = tanh_to_sigmoid(self.synth_reflectance) + 1e-8
+            errors = compute_depth_error(reflectance_ref, reflectance_gen)
+            self.reflectance_errors = {'reflectance/' + k: v.mean().item() for k ,v in errors.items()}
+            # self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
+        # combine loss and calculate gradients
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
@@ -150,7 +161,7 @@ class Pix2PixModel(BaseModel):
         # combine loss and calculate gradients
         self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
 
-    def calc_loss_G(self, is_eval=True):
+    def calc_loss_G(self):
         """Calculate GAN and L1 loss for the generator"""
         # First, G(A) should fake the discriminator
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)
@@ -159,22 +170,7 @@ class Pix2PixModel(BaseModel):
         # Second, G(A) = B
         self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B)
         self.loss_mask_bce = self.BCEwithLogit(self.synth_mask_logit, self.real_mask)
-        if is_eval:
-            points_gen = self.lidar.inv_to_xyz(tanh_to_sigmoid(self.synth_inv))
-            points_ref = flatten(self.real_points)
-            points_gen = flatten(points_gen)
-            depth_ref = self.lidar.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
-            depth_gen = self.lidar.revert_depth(tanh_to_sigmoid(self.synth_inv), norm=False)
-            if 'cd' in self.eval_metrics:
-                self.cd = compute_cd(points_ref, points_gen).mean().item()
-            if 'depth_accuracies' in self.eval_metrics:
-                accuracies = compute_depth_accuracy(depth_ref, depth_gen)
-                self.depth_accuracies = {k: v.mean().item() for k ,v in accuracies.items()}
-            if 'depth_errors' in self.eval_metrics:
-                errors = compute_depth_error(depth_ref, depth_gen)
-                self.depth_errors = {k: v.mean().item() for k ,v in errors.items()}
-            # self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
-        # combine loss and calculate gradients
+        
         self.loss_G = self.loss_G_GAN * self.opt.model.lambda_LGAN + self.loss_G_L1 * self.opt.model.lambda_L1 + self.loss_mask_bce * self.opt.model.lambda_mask
         
 

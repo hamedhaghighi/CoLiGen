@@ -7,10 +7,26 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
 import matplotlib
 import matplotlib.cm as cm
 # from util.geometry import estimate_surface_normal
+
+def fetch_reals(data, lidar, device):
+    mask = data["mask"].float()
+    inv = lidar.invert_depth(data["depth"])
+    inv = sigmoid_to_tanh(inv)  # [-1,1]
+    inv = mask * inv + (1 - mask) * -1
+    batch = {'inv': inv, 'mask': mask, 'depth': data['depth'], 'points': data['points']}
+    if 'reflectance' in data:
+        reflectance =  data["reflectance"] # [0, 1]
+        reflectance = sigmoid_to_tanh(reflectance)
+        reflectance = mask * reflectance + (1 - mask) * -1
+        batch['reflectance'] = reflectance
+    if 'label' in data:
+        batch['label'] = data['label']
+    for k , v in batch.items():
+        batch[k] = v.to(device)
+    return batch
 
 
 def init_weights(cfg):
@@ -108,8 +124,6 @@ def cycle(iterable):
     while True:
         for i in iterable:
             yield i
-
-
 
 
 def postprocess(synth, lidar, tol=1e-8, data_maps=None):

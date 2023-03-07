@@ -140,10 +140,10 @@ class BaseModel(ABC):
             for name in self.eval_metrics:
                 value = getattr(self, name)
                 if isinstance(value, (int, float)):
-                    errors_ret[name] = float(value)
+                    errors_ret[name] = value
                 elif isinstance(value, dict):
                     for k , v in value.items():
-                        errors_ret[k] = float(v)
+                        errors_ret[k] = v
         else:
             for name in self.loss_names:
                 errors_ret[name] = float(getattr(self, 'loss_' + name)) 

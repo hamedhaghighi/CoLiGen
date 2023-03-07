@@ -8,19 +8,30 @@ import yaml
 import argparse
 import numpy as np
 import torch
-from tqdm import trange
 import tqdm
 import os
 from util.lidar import LiDAR
+from util import *
 from collections import defaultdict
 import shutil
-
+from util.sampling.fps import downsample_point_clouds
+from util.metrics.cov_mmd_1nna import compute_cov_mmd_1nna
+from util.metrics.jsd import compute_jsd
+from util.metrics.swd import compute_swd
+os.environ['LD_PRELOAD'] = "/usr/lib/x86_64-linux-gnu/libstdc++.so.6" 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 def cycle(iterable):
     while True:
         for x in iterable:
             yield x
 
+def inv_to_xyz(inv, lidar, tol=1e-8):
+        inv = tanh_to_sigmoid(inv).clamp_(0, 1)
+        xyz = lidar.inv_to_xyz(inv, tol)
+        xyz = xyz.flatten(2).transpose(1, 2)  # (B,N,3)
+        xyz = downsample_point_clouds(xyz, 512)
+        return xyz
 
 def make_class_from_dict(opt):
     if any([isinstance(k, int) for k in opt.keys()]):
@@ -59,17 +70,21 @@ def modify_opt_for_fast_test(opt):
     opt.batch_size = 2
 
 
-def check_exp_exists(opt, cfg_path):
+def check_exp_exists(opt, cfg_args):
+    cfg_path = cfg_args.cfg_train
     opt_t = opt.training
     opt_m = opt.model
     opt_d = opt.dataset.dataset_A
     modality_A = '_'.join(opt_m.modality_A)
     out_ch = ''
+
     for k in [attr for attr in dir(opt_m.out_ch) if not attr.startswith("__")]:
         out_ch += f'{k}_{getattr(opt_m.out_ch, k)}_'
-        
-    opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
-        + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}'
+    if not cfg_args.load:
+        opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
+            + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}'
+    else:
+        opt_t.name = cfg_path.split(os.sep)[1]    
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
     if not opt_t.continue_train and opt_t.isTrain:
         if os.path.exists(exp_dir):
@@ -91,6 +106,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg_train', type=str, help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
+    parser.add_argument('--load', action='store_true', help='Path of the dataset')
 
 
     cl_args = parser.parse_args()
@@ -105,8 +121,9 @@ if __name__ == '__main__':
     if not opt.training.isTrain:
         opt.training.n_epochs = 1
 
-    check_exp_exists(opt, cl_args.cfg_train)
+    check_exp_exists(opt, cl_args)
 
+    device = torch.device('cuda:{}'.format(opt.training.gpu_ids[0])) if opt.training.gpu_ids else torch.device('cpu') 
     lidar = LiDAR(
     num_ring=opt.dataset.dataset_A.img_prop.height,
     num_points=opt.dataset.dataset_A.img_prop.width,
@@ -133,6 +150,7 @@ if __name__ == '__main__':
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
         e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
+        # Train loop
         if opt.training.isTrain:
             visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
             model.update_learning_rate()    # update learning rates in the beginning of every epoch.
@@ -152,7 +170,7 @@ if __name__ == '__main__':
                     visualizer.display_current_results('train', model.get_current_visuals(), g_steps, data_maps)
 
                 if g_steps % opt.training.print_freq == 0:    # print training losses and save logging information to the disk
-                    losses = model.get_current_losses(is_eval=True)
+                    losses = model.get_current_losses()
                     visualizer.print_current_losses('train', epoch, e_steps, losses, train_tq)
                     visualizer.plot_current_losses('train', epoch, losses, g_steps)
 
@@ -164,12 +182,13 @@ if __name__ == '__main__':
 
         val_dl_iter = iter(val_dl)
         n_val_batch = 2 if opt.training.fast_test else  len(val_dl)
-        ##### Do validation ....    
+        ##### validation
         val_losses = defaultdict(list)
         model.train(False)
+        tag = 'val' if opt.training.isTrain else 'test'
         val_tq = tqdm.tqdm(total=n_val_batch, desc='val_Iter', position=5)
         dis_batch_ind = np.random.randint(0, n_val_batch)
-        generated_remission = []
+        data_dict = defaultdict(list)
         for i in range(n_val_batch):
             data = next(val_dl_iter)
             model.set_input_PCL(data)
@@ -177,23 +196,55 @@ if __name__ == '__main__':
                 model.evaluate_model()
 
             vis_dict = model.get_current_visuals()
-            if fid_cls is not None:
-                generated_remission.append(vis_dict['fake_B'].detach().cpu())
+            # if fid_cls is not None:
+            # data.append(vis_dict['fake_B'].detach().cpu())
+            if not opt.training.isTrain: 
+                data_dict['synth-2d'].append(model.synth_inv)
+                data_dict['synth-3d'].append(inv_to_xyz(model.synth_inv, lidar))
 
             if i == dis_batch_ind:
-                visualizer.display_current_results('val', vis_dict, g_steps, data_maps)
+                visualizer.display_current_results(tag, vis_dict, g_steps, data_maps)
 
             for k ,v in model.get_current_losses(is_eval=True).items():
                 val_losses[k].append(v)
             val_tq.update(1)
         
-        if fid_cls is not None:
-            fid_score = fid_cls.fid_score(generated_remission, batch_size= opt.batch_size)
-            visualizer.plot_current_losses('val', epoch, {'FID':fid_score}, g_steps)
+        # if fid_cls is not None:
+        #     fid_score = fid_cls.fid_score(generated_remission, batch_size= opt.batch_size)
+        #     visualizer.plot_current_losses('val', epoch, {'FID':fid_score}, g_steps)
 
-        losses = {k: np.array(v).mean() for k , v in val_losses.items()}
-        visualizer.plot_current_losses('val', epoch, losses, g_steps)
-        visualizer.print_current_losses('val', epoch, e_steps, losses, val_tq)
+        losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}
+        if opt.training.isTrain:
+            visualizer.plot_current_losses(tag, epoch, losses, g_steps)
+        else:
+            for i in range(3):
+                visualizer.plot_current_losses(tag, epoch, losses, i)
+        visualizer.print_current_losses(tag, epoch, e_steps, losses, val_tq)
+        if not opt.training.isTrain:
+            test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size)
+            test_dl_iter = iter(test_dl)
+            n_test_batch = 2 if opt.training.fast_test else  len(test_dl)
+            N = n_test_batch * opt.training.batch_size if opt.training.fast_test else len(test_dataset)
+            ##### calculating unsupervised metrics
+            test_tq = tqdm.tqdm(total=n_test_batch, desc='real_data', position=5)
+            for i in range(len(test_dl)):
+                data = next(test_dl_iter)
+                data = fetch_reals(data, lidar, device)
+                data_dict['real-2d'].append(data['inv'])
+                data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar))
+                test_tq.update(1)
+
+            for k ,v in data_dict.items():
+                data_dict[k] = torch.cat(v, dim=0)[: N]
+            scores = {}
+            scores.update(compute_swd(data_dict["synth-2d"], data_dict["real-2d"]))
+            scores["jsd"] = compute_jsd(data_dict["synth-3d"] / 2.0, data_dict["real-3d"] / 2.0)
+            scores.update(compute_cov_mmd_1nna(data_dict["synth-3d"], data_dict["real-3d"], 512, ("cd",)))
+
+            for i in range(3):
+                visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, i)
+            visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
+
         epoch_tq.update(1)
 
         print('End of epoch %d \t Time Taken: %d sec' % (epoch, time.time() - epoch_start_time))

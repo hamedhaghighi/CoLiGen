@@ -153,7 +153,7 @@ class Coordinate(nn.Module):
     def xyz_to_pol(self, xyz):
         return torch.norm(xyz, p=2, dim=1, keepdim=True)
 
-    def inv_to_xyz(self, inv_depth, tol=1e-8):
+    def inv_to_xyz(self, inv_depth, tol=1e-8): # inv_depth [0, 1]
         valid = torch.abs(inv_depth - self.drop_const) > tol
         depth = self.revert_depth(inv_depth)  # [0,1] depth
         depth = depth * (self.max_depth - self.min_depth) + self.min_depth
