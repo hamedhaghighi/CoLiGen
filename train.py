@@ -80,11 +80,14 @@ def check_exp_exists(opt, cfg_args):
 
     for k in [attr for attr in dir(opt_m.out_ch) if not attr.startswith("__")]:
         out_ch += f'{k}_{getattr(opt_m.out_ch, k)}_'
-    if not cfg_args.load:
+    if cfg_args.load:
+        opt_t.name = cfg_path.split(os.sep)[1]
+    elif cfg_args.fast_test:
+        opt_t.name = 'test'
+    else:
         opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
             + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}'
-    else:
-        opt_t.name = cfg_path.split(os.sep)[1]    
+        
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
     if not opt_t.continue_train and opt_t.isTrain:
         if os.path.exists(exp_dir):
@@ -106,7 +109,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg_train', type=str, help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
-    parser.add_argument('--load', action='store_true', help='Path of the dataset')
+    parser.add_argument('--load', action='store_true', help='if load true the exp name comes from checkpoint path')
+    parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
 
 
     cl_args = parser.parse_args()
@@ -115,7 +119,7 @@ if __name__ == '__main__':
     np.random.seed(opt.training.seed)
     # DATA = yaml.safe_load(open(pa.cfg_dataset, 'r'))
     ## test whole code fast
-    if opt.training.fast_test and opt.training.isTrain:
+    if cl_args.fast_test and opt.training.isTrain:
         modify_opt_for_fast_test(opt.training)
 
     if not opt.training.isTrain:
@@ -156,7 +160,7 @@ if __name__ == '__main__':
             model.update_learning_rate()    # update learning rates in the beginning of every epoch.
             model.train(True)
             train_dl_iter = iter(train_dl)
-            n_train_batch = 2 if opt.training.fast_test else len(train_dl)
+            n_train_batch = 2 if cl_args.fast_test else len(train_dl)
             train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
             for _ in range(n_train_batch):  # inner loop within one epoch
                 data = next(train_dl_iter)
@@ -181,7 +185,7 @@ if __name__ == '__main__':
                 train_tq.update(1)
 
         val_dl_iter = iter(val_dl)
-        n_val_batch = 2 if opt.training.fast_test else  len(val_dl)
+        n_val_batch = 2 if cl_args.fast_test else  len(val_dl)
         ##### validation
         val_losses = defaultdict(list)
         model.train(False)
@@ -223,8 +227,8 @@ if __name__ == '__main__':
         if not opt.training.isTrain:
             test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size)
             test_dl_iter = iter(test_dl)
-            n_test_batch = 2 if opt.training.fast_test else  len(test_dl)
-            N = n_test_batch * opt.training.batch_size if opt.training.fast_test else len(test_dataset)
+            n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
+            N = n_test_batch * opt.training.batch_size if cl_args.fast_test else len(test_dataset)
             ##### calculating unsupervised metrics
             test_tq = tqdm.tqdm(total=n_test_batch, desc='real_data', position=5)
             for i in range(len(test_dl)):

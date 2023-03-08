@@ -75,8 +75,9 @@ class Pix2PixModel(BaseModel):
         output_nc_G = np.array(out_ch_values).sum()
         input_nc_D = len(opt_m.modality_B)
         out_ch = {k: getattr(opt_m.out_ch, k) for k  in members}
+        same_kernel_size = opt.dataset.dataset_A.img_prop.width == opt.dataset.dataset_A.img_prop.height
         self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.norm,
-                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, out_ch)
+                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, out_ch, same_kernel_size=same_kernel_size)
 
         self.netD = networks.define_D(input_nc_D + input_nc_G, opt_m.ndf, opt_m.netD,
                                         opt_m.n_layers_D, opt_m.norm, opt_m.init_type, opt_m.init_gain, self.gpu_ids)

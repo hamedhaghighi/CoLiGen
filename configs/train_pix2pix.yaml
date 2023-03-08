@@ -5,8 +5,7 @@ training:
   n_epochs: 100
   lr: 0.0002
   batch_size: 8
-  fast_test: True
-  test: True
+  test: False
   gpu_ids: [0]
   checkpoints_dir: './checkpoints'
   epoch: 'latest'
@@ -60,7 +59,7 @@ dataset:
     fill_in_label: True
     img_prop:
       width: 256
-      height: 64
+      height: 256
     learning_map:
       0 : 0     # "unlabeled"
       1 : 0     # "outlier" mapped to "unlabeled" --------------------------mapped
