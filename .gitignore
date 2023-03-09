@@ -11,3 +11,4 @@ devel/
 logs/
 external.hpp
 configs/
+rangenet/rangenet_weights

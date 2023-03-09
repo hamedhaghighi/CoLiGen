@@ -2,7 +2,7 @@ import time
 # from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
-from util.fid import FID
+from fid import FID
 from dataset.datahandler import get_data_loader
 import yaml
 import argparse
@@ -111,6 +111,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
     parser.add_argument('--load', action='store_true', help='if load true the exp name comes from checkpoint path')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
+    parser.add_argument('--fid_dataset_name', type=str, default='', help='fast test of experiment')
 
 
     cl_args = parser.parse_args()
@@ -135,7 +136,7 @@ if __name__ == '__main__':
     max_depth=opt.dataset.dataset_A.max_depth,
     angle_file=os.path.join(opt.dataset.dataset_A.data_dir, "angles.pt"),
     )
-    lidar.to('cuda')
+    lidar.to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
     model.setup(opt.training)               # regular setup: load and print networks; create schedulers
     visualizer = Visualizer(opt.training, lidar)   # create a visualizer that display/save images and plots
@@ -144,7 +145,7 @@ if __name__ == '__main__':
     train_dl, train_dataset = get_data_loader(opt.dataset, 'train', opt.training.batch_size)
     val_dl, _ = get_data_loader(opt.dataset, 'val' if opt.training.isTrain else 'test', opt.training.batch_size)  
 
-    fid_cls = FID(train_dataset, opt.dataset.dataset_A.data_dir) if opt.training.calc_FID else None
+    fid_cls = FID(train_dataset, cl_args.fid_dataset_name, lidar) if cl_args.fid_dataset_name!= '' else None
 
     epoch_tq = tqdm.tqdm(total=opt.training.n_epochs, desc='Epoch', position=1)
     start_from_epoch = model.schedulers[0].last_epoch if opt.training.continue_train else 0 
@@ -193,6 +194,7 @@ if __name__ == '__main__':
         val_tq = tqdm.tqdm(total=n_val_batch, desc='val_Iter', position=5)
         dis_batch_ind = np.random.randint(0, n_val_batch)
         data_dict = defaultdict(list)
+        fid_samples = [] if fid_cls is not None else None
         for i in range(n_val_batch):
             data = next(val_dl_iter)
             model.set_input_PCL(data)
@@ -200,11 +202,18 @@ if __name__ == '__main__':
                 model.evaluate_model()
 
             vis_dict = model.get_current_visuals()
-            # if fid_cls is not None:
-            # data.append(vis_dict['fake_B'].detach().cpu())
-            if not opt.training.isTrain: 
-                data_dict['synth-2d'].append(model.synth_inv)
-                data_dict['synth-3d'].append(inv_to_xyz(model.synth_inv, lidar))
+
+            data_dict['synth-2d'].append(model.synth_inv)
+            data_dict['synth-3d'].append(inv_to_xyz(model.synth_inv, lidar))
+
+            if fid_cls is not None:
+                synth_depth = lidar.revert_depth(tanh_to_sigmoid(model.synth_inv), norm=False)
+                synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(model.synth_inv)) * lidar.max_depth
+                synth_reflectance = tanh_to_sigmoid(model.synth_reflectance)
+                synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, model.synth_mask], dim=1)
+                fid_samples.append(synth_data)
+
+
 
             if i == dis_batch_ind:
                 visualizer.display_current_results(tag, vis_dict, g_steps, data_maps)
@@ -224,30 +233,30 @@ if __name__ == '__main__':
             for i in range(3):
                 visualizer.plot_current_losses(tag, epoch, losses, i)
         visualizer.print_current_losses(tag, epoch, e_steps, losses, val_tq)
-        if not opt.training.isTrain:
-            test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size)
-            test_dl_iter = iter(test_dl)
-            n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
-            N = n_test_batch * opt.training.batch_size if cl_args.fast_test else len(test_dataset)
-            ##### calculating unsupervised metrics
-            test_tq = tqdm.tqdm(total=n_test_batch, desc='real_data', position=5)
-            for i in range(len(test_dl)):
-                data = next(test_dl_iter)
-                data = fetch_reals(data, lidar, device)
-                data_dict['real-2d'].append(data['inv'])
-                data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar))
-                test_tq.update(1)
+        test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size)
+        test_dl_iter = iter(test_dl)
+        n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
+        N = n_test_batch * opt.training.batch_size if cl_args.fast_test else len(test_dataset)
+        ##### calculating unsupervised metrics
+        test_tq = tqdm.tqdm(total=n_test_batch, desc='real_data', position=5)
+        for i in range(len(test_dl)):
+            data = next(test_dl_iter)
+            data = fetch_reals(data, lidar, device)
+            data_dict['real-2d'].append(data['inv'])
+            data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar))
+            test_tq.update(1)
 
-            for k ,v in data_dict.items():
-                data_dict[k] = torch.cat(v, dim=0)[: N]
-            scores = {}
-            scores.update(compute_swd(data_dict["synth-2d"], data_dict["real-2d"]))
-            scores["jsd"] = compute_jsd(data_dict["synth-3d"] / 2.0, data_dict["real-3d"] / 2.0)
-            scores.update(compute_cov_mmd_1nna(data_dict["synth-3d"], data_dict["real-3d"], 512, ("cd",)))
-
-            for i in range(3):
-                visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, i)
-            visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
+        for k ,v in data_dict.items():
+            data_dict[k] = torch.cat(v, dim=0)[: N]
+        scores = {}
+        scores.update(compute_swd(data_dict["synth-2d"], data_dict["real-2d"]))
+        scores["jsd"] = compute_jsd(data_dict["synth-3d"] / 2.0, data_dict["real-3d"] / 2.0)
+        scores.update(compute_cov_mmd_1nna(data_dict["synth-3d"], data_dict["real-3d"], 512, ("cd",)))
+        if fid_cls is not None:
+            scores['fid'] = fid_cls.fid_score(torch.cat(fid_samples, dim=0))
+        for i in range(3):
+            visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, i)
+        visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
 
         epoch_tq.update(1)
 

@@ -134,14 +134,14 @@ learning_map:
   80: 18    # "pole"
   81: 19    # "traffic-sign"
   99: 0     # "other-object" to "unlabeled" ----------------------------mapped
-  252: 1    # "moving-car" to "car" ------------------------------------mapped
-  253: 7    # "moving-bicyclist" to "bicyclist" ------------------------mapped
-  254: 6    # "moving-person" to "person" ------------------------------mapped
-  255: 8    # "moving-motorcyclist" to "motorcyclist" ------------------mapped
-  256: 5    # "moving-on-rails" mapped to "other-vehicle" --------------mapped
-  257: 5    # "moving-bus" mapped to "other-vehicle" -------------------mapped
-  258: 4    # "moving-truck" to "truck" --------------------------------mapped
-  259: 5    # "moving-other"-vehicle to "other-vehicle" ----------------mapped
+  252: 20    # "moving-car"
+  253: 21    # "moving-bicyclist"
+  254: 22    # "moving-person"
+  255: 23    # "moving-motorcyclist"
+  256: 24    # "moving-on-rails" mapped to "moving-other-vehicle" ------mapped
+  257: 24    # "moving-bus" mapped to "moving-other-vehicle" -----------mapped
+  258: 25    # "moving-truck"
+  259: 24    # "moving-other-vehicle"
 learning_map_inv: # inverse of previous map
   0: 0      # "unlabeled", and others ignored
   1: 10     # "car"
@@ -163,6 +163,12 @@ learning_map_inv: # inverse of previous map
   17: 72    # "terrain"
   18: 80    # "pole"
   19: 81    # "traffic-sign"
+  20: 252    # "moving-car"
+  21: 253    # "moving-bicyclist"
+  22: 254    # "moving-person"
+  23: 255    # "moving-motorcyclist"
+  24: 259    # "moving-other-vehicle"
+  25: 258    # "moving-truck"
 learning_ignore: # Ignore classes
   0: True      # "unlabeled", and others ignored
   1: False     # "car"
@@ -184,6 +190,12 @@ learning_ignore: # Ignore classes
   17: False    # "terrain"
   18: False    # "pole"
   19: False    # "traffic-sign"
+  20: False    # "moving-car"
+  21: False    # "moving-bicyclist"
+  22: False    # "moving-person"
+  23: False    # "moving-motorcyclist"
+  24: False    # "moving-other-vehicle"
+  25: False    # "moving-truck"
 split: # sequence numbers
   train:
     - 0
@@ -210,26 +222,3 @@ split: # sequence numbers
     - 19
     - 20
     - 21
-sensor:
-    name: "HDL64"
-    type: "spherical" # projective
-    have_rgb: False
-    fov_up: 3
-    fov_down: -25 
-    foh_left: 45
-    foh_right: -45
-    img_prop:
-      width: 256
-      height: 64
-    img_means: #range,x,y,z,signal
-      - 12.12
-      - 10.88
-      - 0.23
-      - -1.04
-      - 0.21
-    img_stds: #range,x,y,z,signal
-      - 12.32
-      - 11.47
-      - 6.91
-      - 0.86
-      - 0.16
