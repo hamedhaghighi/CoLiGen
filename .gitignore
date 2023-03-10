@@ -12,3 +12,4 @@ logs/
 external.hpp
 configs/
 rangenet/rangenet_weights
+fid_stats/

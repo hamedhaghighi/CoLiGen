@@ -144,7 +144,7 @@ if __name__ == '__main__':
 
     train_dl, train_dataset = get_data_loader(opt.dataset, 'train', opt.training.batch_size)
     val_dl, _ = get_data_loader(opt.dataset, 'val' if opt.training.isTrain else 'test', opt.training.batch_size)  
-
+    
     fid_cls = FID(train_dataset, cl_args.fid_dataset_name, lidar) if cl_args.fid_dataset_name!= '' else None
 
     epoch_tq = tqdm.tqdm(total=opt.training.n_epochs, desc='Epoch', position=1)
@@ -227,11 +227,7 @@ if __name__ == '__main__':
         #     visualizer.plot_current_losses('val', epoch, {'FID':fid_score}, g_steps)
 
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}
-        if opt.training.isTrain:
-            visualizer.plot_current_losses(tag, epoch, losses, g_steps)
-        else:
-            for i in range(3):
-                visualizer.plot_current_losses(tag, epoch, losses, i)
+        visualizer.plot_current_losses(tag, epoch, losses, g_steps)
         visualizer.print_current_losses(tag, epoch, e_steps, losses, val_tq)
         test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size)
         test_dl_iter = iter(test_dl)
@@ -254,8 +250,7 @@ if __name__ == '__main__':
         scores.update(compute_cov_mmd_1nna(data_dict["synth-3d"], data_dict["real-3d"], 512, ("cd",)))
         if fid_cls is not None:
             scores['fid'] = fid_cls.fid_score(torch.cat(fid_samples, dim=0))
-        for i in range(3):
-            visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, i)
+        visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, g_steps)
         visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
 
         epoch_tq.update(1)
