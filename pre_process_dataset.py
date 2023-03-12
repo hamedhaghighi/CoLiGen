@@ -12,8 +12,11 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 import yaml
-# from datasets.kitti import KITTIOdometry
 from util.lidar import point_cloud_to_xyz_image, labelmap
+from nuscenes.nuscenes import NuScenes
+import pathlib
+from dataset.kitti_odometry import KITTIOdometry
+from dataset.nuscene import NuScene
 
 def _map(label, mapdict):
     # put label from original values to xentropy
@@ -50,7 +53,7 @@ palette = list(np.uint8(_colors).flatten())
 
 
 
-def process_point_clouds(point_path, H=64, W=2048):
+def process_point_clouds(point_path, H, W):
     save_dir = lambda x: x.replace("dataset/sequences", "dusty-gan/sequences")
     # setup point clouds
     points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 4))
@@ -76,6 +79,30 @@ def process_point_clouds(point_path, H=64, W=2048):
         labels.save(save_path)
 
 
+def process_nucs_point_clouds(point_path, label_path, H, W):
+    filename = point_path.split(os.path.sep)[-1]
+    root_dir = os.path.sep.join(point_path.split(os.path.sep)[:-1])
+    root_dir = root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg')
+    save_dir = osp.join(root_dir, 'PCL', filename)
+    label_save_dir = osp.join(root_dir, 'label', filename)
+    # setup point clouds
+    points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 5))[:, [1, 0, 2, 3]]; points[:, 0] = -points[:, 0]
+    # for semantic kitti
+    if osp.exists(label_path):
+        sem_label = np.fromfile(label_path, dtype=np.uint8)
+        points = np.concatenate([points, sem_label.astype('float32')[:, None]], axis=1)
+    proj, _ = point_cloud_to_xyz_image(points, H, W, fov_up=10.0, fov_down=-30.0, is_sorted=False)
+
+
+    save_path = save_dir.replace(".bin", ".npy")
+    os.makedirs(osp.dirname(save_path), exist_ok=True)
+    np.save(save_path, proj[..., :4])
+    if osp.exists(label_path):
+        save_path = label_save_dir.replace(".bin", ".png")
+        os.makedirs(osp.dirname(save_path), exist_ok=True)
+        labels = Image.fromarray(np.uint8(proj[..., 4]))
+        labels.save(save_path)
+
 def mean(tensor, dim):
     tensor = tensor.clone()
     kwargs = {"dim": dim, "keepdim": True}
@@ -93,7 +120,7 @@ def compute_avg_angles(loader):
     summary = defaultdict(float)
 
     for item in tqdm(loader):
-        xyz_batch = item["xyz"]
+        xyz_batch = item["points"]
 
         x = xyz_batch[:, [0]]
         y = xyz_batch[:, [1]]
@@ -132,37 +159,75 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--root-dir", type=str, required=True)
+    parser.add_argument("--dataset-name", type=str, required=True)
+
     args = parser.parse_args()
-
+    if args.dataset_name == 'kitti':
     # 2D maps
-    split_dirs = sorted(glob(osp.join(args.root_dir, "dataset/sequences", "*")))
-    H, W = 64, 2048
+        H, W =64, 2048
+        split_dirs = sorted(glob(osp.join(args.root_dir, "dataset/sequences", "*")))
+        for split_dir in tqdm(split_dirs):
+            point_paths = sorted(glob(osp.join(split_dir, "velodyne", "*.bin")))
+            joblib.Parallel(
+                n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
+            )(
+                [
+                    joblib.delayed(process_point_clouds)(point_path, H, W)
+                    for point_path in point_paths
+                ]
+            )
+        dataset = KITTIOdometry(
+        args.root_dir,
+        'train',
+        None,
+        shape=(64, 2048),
+        flip=False,
+        modality=['depth'],
+        is_sorted=True,
+        is_raw=True,
+        fill_in_label=False)
 
-    for split_dir in tqdm(split_dirs):
-        point_paths = sorted(glob(osp.join(split_dir, "velodyne", "*.bin")))
+    elif args.dataset_name == 'nuscene':
+        H, W = 32, 1024
+        nusc = NuScenes(version = 'v1.0-mini', dataroot = args.root_dir, verbose = True)
+        datalist = []
+        labels_list=[]
+        for i in range(len(nusc.sample)):
+            sample = nusc.sample[i]
+            sample_data_token = sample['data']['LIDAR_TOP']
+            sample_path = nusc.get_sample_data_path(sample_data_token)
+            label_path = (pathlib.Path(nusc.dataroot) / nusc.get("lidarseg", sample_data_token)["filename"])
+            datalist.append(sample_path)
+            labels_list.append(label_path)
         joblib.Parallel(
             n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
         )(
             [
-                joblib.delayed(process_point_clouds)(point_path, H, W)
-                for point_path in point_paths
+                joblib.delayed(process_nucs_point_clouds)(point_path, label_path, H, W)
+                for point_path, label_path in zip(datalist, labels_list)
             ]
         )
+        dataset = NuScene(
+        args.root_dir,
+        'train',
+        None,
+        shape=(32, 1024),
+        flip=False,
+        modality=['depth'],
+        is_sorted=False,
+        is_raw=True,
+        fill_in_label=False)
 
-    # average angles
-    # dataset = KITTIOdometry(
-    #     root=osp.join(args.root_dir),
-    #     split="train",
-    #     shape=(H, W),
-    #     is_sorted=args.sorted
-    # )
-    # loader = torch.utils.data.DataLoader(
-    #     dataset,
-    #     batch_size=64,
-    #     num_workers=4,
-    #     drop_last=False,
-    # )
-    # N = len(dataset)
 
-    # angles, valid = compute_avg_angles(loader)
-    # torch.save(angles, osp.join(args.root_dir, "angles.pt"))
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=64,
+        num_workers=4,
+        drop_last=False,
+    )
+    N = len(dataset)
+
+    angles, valid = compute_avg_angles(loader)
+    torch.save(angles, osp.join(args.root_dir, "angles.pt"))
+    torch.save(angles, osp.join(args.root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg'), "angles.pt"))
+

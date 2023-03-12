@@ -10,6 +10,41 @@ import torch.nn.functional as F
 import matplotlib
 import matplotlib.cm as cm
 # from util.geometry import estimate_surface_normal
+    
+labels_mapping = {
+    1: 0,
+    5: 0,
+    7: 0,
+    8: 0,
+    10: 0,
+    11: 0,
+    13: 0,
+    19: 0,
+    20: 0,
+    0: 0,
+    29: 0,
+    31: 0,
+    9: 1,
+    14: 2,
+    15: 3,
+    16: 3,
+    17: 4,
+    18: 5,
+    21: 6,
+    2: 7,
+    3: 7,
+    4: 7,
+    6: 7,
+    12: 8,
+    22: 9,
+    23: 10,
+    24: 11,
+    25: 12,
+    26: 13,
+    27: 14,
+    28: 15,
+    30: 16
+}
 
 def fetch_reals(data, lidar, device):
     mask = data["mask"].float()
@@ -126,7 +161,7 @@ def cycle(iterable):
             yield i
 
 
-def postprocess(synth, lidar, tol=1e-8, data_maps=None):
+def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
     out = {}
     for key, value in synth.items():
         if 'inv' in key:
@@ -136,8 +171,12 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None):
         elif "reflectance" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:
-            label_tensor = _map(_map(value.squeeze().long(), data_maps.learning_map_inv), data_maps.color_map)
-            out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
+            if dataset_name == 'kitti':
+                label_tensor = _map(_map(value.squeeze().long(), data_maps.learning_map_inv), data_maps.color_map)
+                out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
+            elif dataset_name == 'nuscene':
+                label_tensor = _map(_map(_map(value.squeeze().long(), labels_mapping), data_maps.learning_map_inv), data_maps.color_map)
+                out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
         else:
             out[key] = value
     return out

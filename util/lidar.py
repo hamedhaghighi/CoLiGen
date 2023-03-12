@@ -64,7 +64,7 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H = 64, W=2048, is_sorted=True):
+def point_cloud_to_xyz_image(points, H = 64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True):
     xyz = points[:, :3]  # xyz
     x = xyz[:, 0]
     y = xyz[:, 1]
@@ -72,8 +72,8 @@ def point_cloud_to_xyz_image(points, H = 64, W=2048, is_sorted=True):
     depth = np.linalg.norm(xyz, ord=2, axis=1)
     order = np.argsort(-depth)
     if not is_sorted:
-        fov_up = 3.0 / 180.0 * np.pi      # field of view up in rad
-        fov_down = -25.0 / 180.0 * np.pi  # field of view down in rad
+        fov_up = fov_up / 180.0 * np.pi      # field of view up in rad
+        fov_down = fov_down/ 180.0 * np.pi  # field of view down in rad
         fov = abs(fov_down) + abs(fov_up)
         pitch = np.arcsin(z / depth)
         grid_h = 1.0 - (pitch + abs(fov_down)) / fov
@@ -207,12 +207,20 @@ class LiDAR(Coordinate):
         self,
         num_ring,
         num_points,
-        min_depth,
-        max_depth,
         angle_file,
+        dataset_name=None
     ):
         assert os.path.exists(angle_file), angle_file
         self.angle_file = angle_file
+        if dataset_name == 'nuscene':
+            from dataset.nuscene import MIN_DEPTH
+            from dataset.nuscene import MAX_DEPTH
+            min_depth, max_depth = MIN_DEPTH, MAX_DEPTH
+        elif dataset_name == 'kitti':
+            from dataset.kitti_odometry import MIN_DEPTH
+            from dataset.kitti_odometry import MAX_DEPTH
+            min_depth, max_depth = MIN_DEPTH, MAX_DEPTH
+
         super().__init__(
             min_depth=min_depth,
             max_depth=max_depth,

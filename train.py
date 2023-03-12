@@ -20,7 +20,6 @@ from util.metrics.jsd import compute_jsd
 from util.metrics.swd import compute_swd
 os.environ['LD_PRELOAD'] = "/usr/lib/x86_64-linux-gnu/libstdc++.so.6" 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
 def cycle(iterable):
     while True:
         for x in iterable:
@@ -67,7 +66,7 @@ def modify_opt_for_fast_test(opt):
     opt.print_freq = 1
     opt.save_latest_freq = 1
     opt.max_dataset_size = 10
-    opt.batch_size = 2
+    opt.batch_size = 8
 
 
 def check_exp_exists(opt, cfg_args):
@@ -132,19 +131,17 @@ if __name__ == '__main__':
     lidar = LiDAR(
     num_ring=opt.dataset.dataset_A.img_prop.height,
     num_points=opt.dataset.dataset_A.img_prop.width,
-    min_depth=opt.dataset.dataset_A.min_depth,
-    max_depth=opt.dataset.dataset_A.max_depth,
     angle_file=os.path.join(opt.dataset.dataset_A.data_dir, "angles.pt"),
+    dataset_name=opt.dataset.dataset_A.name
     )
     lidar.to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
     model.setup(opt.training)               # regular setup: load and print networks; create schedulers
-    visualizer = Visualizer(opt.training, lidar)   # create a visualizer that display/save images and plots
+    visualizer = Visualizer(opt.training, lidar, dataset_name=opt.dataset.dataset_A.name)   # create a visualizer that display/save images and plots
     g_steps = 0
 
-    train_dl, train_dataset = get_data_loader(opt.dataset, 'train', opt.training.batch_size)
-    val_dl, _ = get_data_loader(opt.dataset, 'val' if opt.training.isTrain else 'test', opt.training.batch_size)  
-    
+    train_dl, train_dataset = get_data_loader(opt.dataset, 'train', opt.training.batch_size, dataset_name=opt.dataset.dataset_A.name)
+    val_dl, _ = get_data_loader(opt.dataset, 'val' if opt.training.isTrain else 'test', opt.training.batch_size, dataset_name=opt.dataset.dataset_A.name)  
     fid_cls = FID(train_dataset, cl_args.fid_dataset_name, lidar) if cl_args.fid_dataset_name!= '' else None
 
     epoch_tq = tqdm.tqdm(total=opt.training.n_epochs, desc='Epoch', position=1)
@@ -165,6 +162,14 @@ if __name__ == '__main__':
             train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
             for _ in range(n_train_batch):  # inner loop within one epoch
                 data = next(train_dl_iter)
+                # import matplotlib.pyplot as plt
+                # plt.figure(0)
+                # plt.imshow(np.clip(data['depth'][0,0].numpy()* 5, 0, 1))
+                # plt.figure(1)
+                # plt.imshow(np.clip(data['reflectance'][0,0].numpy(),0 ,1))
+                # plt.figure(2)
+                # plt.imshow(data['label'][0,0].numpy())
+                # plt.show()
                 iter_start_time = time.time()  # timer for computation per iteration
                 g_steps += 1
                 e_steps += 1
@@ -229,7 +234,7 @@ if __name__ == '__main__':
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}
         visualizer.plot_current_losses(tag, epoch, losses, g_steps)
         visualizer.print_current_losses(tag, epoch, e_steps, losses, val_tq)
-        test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size)
+        test_dl, test_dataset = get_data_loader(opt.dataset, 'test', opt.training.batch_size, dataset_name=opt.dataset.dataset_A.name)
         test_dl_iter = iter(test_dl)
         n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
         N = n_test_batch * opt.training.batch_size if cl_args.fast_test else len(test_dataset)
