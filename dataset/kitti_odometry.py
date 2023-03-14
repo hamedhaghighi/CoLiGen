@@ -60,9 +60,10 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         self.is_raw = is_raw
         self.DATA = DATA
         self.fill_in_label = fill_in_label
-        pykitti_dataset = pykitti.odometry(root, '00')
-        self.velo_to_camera_rect = pykitti_dataset.calib.T_cam2_velo
-        self.cam_intrinsic = pykitti_dataset.calib.P_rect_20
+        if 'rgb' in modality:
+            pykitti_dataset = pykitti.odometry(root, '00')
+            self.velo_to_camera_rect = pykitti_dataset.calib.T_cam2_velo
+            self.cam_intrinsic = pykitti_dataset.calib.P_rect_20
         print(os.getcwd())
         self.load_datalist()
 
