@@ -66,7 +66,7 @@ def modify_opt_for_fast_test(opt):
     opt.print_freq = 1
     opt.save_latest_freq = 1
     opt.max_dataset_size = 10
-    opt.batch_size = 8
+    opt.batch_size = 1
 
 
 def check_exp_exists(opt, cfg_args):
@@ -86,7 +86,7 @@ def check_exp_exists(opt, cfg_args):
     else:
         opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
             + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
-                + f'netG_{opt_m.netG}_netD_{opt_m.netD}'
+                + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
         
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
     if not opt_t.continue_train and opt_t.isTrain:
