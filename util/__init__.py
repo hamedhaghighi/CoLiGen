@@ -171,7 +171,7 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
         elif "reflectance" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:
-            if dataset_name == 'kitti':
+            if dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
                 label_tensor = _map(_map(value.squeeze(dim=1).long(), data_maps.learning_map_inv), data_maps.color_map)
                 out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
             elif dataset_name == 'nuscene':

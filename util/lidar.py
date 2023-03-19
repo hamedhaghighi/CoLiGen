@@ -64,7 +64,7 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H = 64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True):
+def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True):
     xyz = points[:, :3]  # xyz
     x = xyz[:, 0]
     y = xyz[:, 1]
@@ -76,6 +76,7 @@ def point_cloud_to_xyz_image(points, H = 64, W=2048, fov_up=3.0, fov_down=-25.0,
         fov_down = fov_down/ 180.0 * np.pi  # field of view down in rad
         fov = abs(fov_down) + abs(fov_up)
         pitch = np.arcsin(z / depth)
+        # print(np.round(pitch, 3).min(), np.round(pitch, 3).max())
         grid_h = 1.0 - (pitch + abs(fov_down)) / fov
         grid_h = np.clip(np.floor(grid_h * H), 0, H-1)
     else:
@@ -97,6 +98,7 @@ def point_cloud_to_xyz_image(points, H = 64, W=2048, fov_up=3.0, fov_down=-25.0,
         
     # horizontal grid
     yaw = -np.arctan2(y, x)  # [-pi,pi]
+    # print(np.round(yaw, 3).min(), np.round(yaw, 3).max())
     grid_w = (yaw / np.pi + 1) / 2  # [0,1]
     grid_w = np.clip(np.floor(grid_w * W), 0, W - 1)
     grid = np.stack((grid_h, grid_w), axis=-1).astype(np.int32)
@@ -216,7 +218,7 @@ class LiDAR(Coordinate):
             from dataset.nuscene import MIN_DEPTH
             from dataset.nuscene import MAX_DEPTH
             min_depth, max_depth = MIN_DEPTH, MAX_DEPTH
-        elif dataset_name == 'kitti':
+        elif dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
             from dataset.kitti_odometry import MIN_DEPTH
             from dataset.kitti_odometry import MAX_DEPTH
             min_depth, max_depth = MIN_DEPTH, MAX_DEPTH

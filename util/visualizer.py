@@ -106,6 +106,7 @@ class Visualizer():
         """
         self.lidar = lidar
         self.dataset_name = dataset_name
+        self.opt = opt
         exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
 
         self.tb_dir = os.path.join(exp_dir +('/TB/' if opt.isTrain else '/TB_test/'), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))

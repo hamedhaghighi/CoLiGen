@@ -55,23 +55,28 @@ class BinaryScan(Dataset):
 
 
 
-def get_data_loader(cfg, split, batch_size, dataset_name='kitti'):
+def get_data_loader(cfg, split, batch_size, dataset_name='kitti', ref_data_dir=None):
   cfg = cfg.dataset_A
-  if dataset_name == 'kitti':
+  data_dir = cfg.data_dir
+  if ref_data_dir != None:
+    data_dir = ref_data_dir
+
+  if dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
     dataset = KITTIOdometry(
-          cfg.data_dir,
-          split,
+          data_dir,
+          split if dataset_name == 'kitti' else dataset_name,
           cfg,
           shape=(cfg.img_prop.height, cfg.img_prop.width),
           flip=False,
           modality=cfg.modality,
           is_sorted=cfg.is_sorted,
           is_raw=cfg.is_raw,
-          fill_in_label=cfg.fill_in_label
+          fill_in_label=cfg.fill_in_label,
+          name=dataset_name
       )
   elif dataset_name =='nuscene':
     dataset = NuScene(
-          cfg.data_dir,
+          data_dir,
           split,
           cfg,
           shape=(cfg.img_prop.height, cfg.img_prop.width),
