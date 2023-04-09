@@ -70,16 +70,13 @@ def check_exp_exists(opt, cfg_args):
     opt_m = opt.model
     opt_d = opt.dataset.dataset_A
     modality_A = '_'.join(opt_m.modality_A)
-    out_ch = ''
-
-    for k in [attr for attr in dir(opt_m.out_ch) if not attr.startswith("__")]:
-        out_ch += f'{k}_{getattr(opt_m.out_ch, k)}_'
+    out_ch = '_'.join(opt_m.out_ch)
     if cfg_args.load != '':
         # opt_t.name = cfg_path.split(os.sep)[1]
         opt_t.name = cfg_args.load
     elif cfg_args.fast_test:
         opt_t.name = 'test'
-    elif opt_t.name == '':
+    else:
         opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
             + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
                 + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
