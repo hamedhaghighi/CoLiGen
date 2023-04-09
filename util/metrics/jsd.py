@@ -105,12 +105,8 @@ def _jensen_shannon_divergence(P, Q):
 
 @torch.no_grad()
 def compute_jsd(pcs_gen, pcs_ref, resolution=28, batchsize=128, verbose=True):
-    _, gen_grid_var = entropy_of_occupancy_grid(
-        pcs_gen, resolution, True, batchsize, verbose
-    )
-    _, ref_grid_var = entropy_of_occupancy_grid(
-        pcs_ref, resolution, True, batchsize, verbose
-    )
+    _, gen_grid_var = entropy_of_occupancy_grid(pcs_gen, resolution, True, batchsize, verbose)
+    _, ref_grid_var = entropy_of_occupancy_grid(pcs_ref, resolution, True, batchsize, verbose)
     return _jensen_shannon_divergence(gen_grid_var, ref_grid_var).item()
 
 

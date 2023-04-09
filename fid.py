@@ -65,8 +65,8 @@ class FID():
     feature_array = self.compute_range_net_features(data_tensor)
     _, C, H, W = feature_array.shape
     random.seed(0)
-    indices = range(4096)
-    # indices = random.sample(range(0, C * H * W), 4096)
+    # indices = range(4096)
+    indices = random.sample(range(0, C * H * W), 4096)
     all_activations = []
     for f in feature_array:
       all_activations.append(f.reshape((-1))[indices])

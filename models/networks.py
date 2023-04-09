@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
-
+from util import m2ch
 
 ###############################################################################
 # Helper Functions
@@ -392,6 +392,9 @@ class ResnetGenerator(nn.Module):
         super(ResnetGenerator, self).__init__()
         self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
         self.out_ch = out_ch
+        self.out_modality = self.out_ch.copy()
+        if 'mask' in self.out_modality:
+            self.out_modality.remove('mask')
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -433,9 +436,9 @@ class ResnetGenerator(nn.Module):
         output = self.model(input)
         output_dict = {}
         i = 0
-        for k, v in self.out_ch.items():
-            output_dict[k] = output[:, i : i + v]
-            i = i + v
+        for k in self.out_ch:
+            output_dict[k] = output[:, i : i + m2ch[k]]
+            i = i + m2ch[k]
         if 'mask' in output_dict:
             output_dict['mask_logit'] = output_dict['mask']
             mask = output_dict['mask'] = self.gumbel(output_dict['mask'])
@@ -446,7 +449,11 @@ class ResnetGenerator(nn.Module):
             if 'reflectance' in output_dict:
                 r = torch.tanh(output_dict['reflectance'])
                 output_dict['reflectance'] = mask * r + (1 - mask) * -1
-        return output_dict
+        out_list = []
+        for m in self.out_modality:
+            out_list.append(output_dict[m])
+        out = torch.cat(out_list, dim=1)
+        return output_dict, out
 
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
@@ -527,6 +534,9 @@ class UnetGenerator(nn.Module):
         super(UnetGenerator, self).__init__()
         # construct unet structure
         self.out_ch = out_ch
+        self.out_modality = self.out_ch.copy()
+        if 'mask' in self.out_modality:
+            self.out_modality.remove('mask')
         self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, same_size_kernel=same_kernel_size)  # add the innermost layer
         for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
@@ -542,9 +552,9 @@ class UnetGenerator(nn.Module):
         output = self.model(input)
         output_dict = {}
         i = 0
-        for k, v in self.out_ch.items():
-            output_dict[k] = output[:, i : i + v]
-            i = i + v
+        for k in self.out_ch:
+            output_dict[k] = output[:, i : i + m2ch[k]]
+            i = i + m2ch[k]
         if 'mask' in output_dict:
             output_dict['mask_logit'] = output_dict['mask']
             mask = output_dict['mask'] = self.gumbel(output_dict['mask'])
@@ -555,8 +565,11 @@ class UnetGenerator(nn.Module):
             if 'reflectance' in output_dict:
                 r = torch.tanh(output_dict['reflectance'])
                 output_dict['reflectance'] = mask * r + (1 - mask) * -1
-        
-        return output_dict
+        out_list = []
+        for m in self.out_modality:
+            out_list.append(output_dict[m])
+        out = torch.cat(out_list, dim=1)
+        return output_dict, out
 
 
 class UnetSkipConnectionBlock(nn.Module):

@@ -10,15 +10,17 @@ from util.lidar import point_cloud_to_xyz_image
 from util import _map
 from dataset.kitti_odometry import KITTIOdometry
 from dataset.nuscene import NuScene
-
+import yaml
+from util import make_class_from_dict
 
 class BinaryScan(Dataset):
 
-  def __init__(self, data_dirA, data_statsA, data_dirB, data_statsB, max_dataset_size=-1):
+  def __init__(self, dataset_A, dataset_B):
     # save deats
-    self.sizeA = len(data_statsA)
-    self.sizeB = len(data_statsB)
-    
+    self.sizeA = len(dataset_A)
+    self.sizeB = len(dataset_B)
+    self.datasetA, self.datasetB = dataset_A, dataset_B
+
   def __getitem__(self, index):
     index_A = index % self.sizeA
     index_B = np.random.randint(0, self.sizeB)
@@ -53,24 +55,17 @@ class BinaryScan(Dataset):
     # do the mapping
     return lut[label]
 
-
-
-def get_data_loader(cfg, split, batch_size, dataset_name='kitti', ref_data_dir=None):
-  cfg = cfg.dataset_A
-  data_dir = cfg.data_dir
-  if ref_data_dir != None:
-    data_dir = ref_data_dir
-
+def get_dataset(dataset_name, cfg, ds_cfg, data_dir, split):
   if dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
     dataset = KITTIOdometry(
           data_dir,
           split if dataset_name == 'kitti' else dataset_name,
-          cfg,
+          ds_cfg,
           shape=(cfg.img_prop.height, cfg.img_prop.width),
           flip=False,
           modality=cfg.modality,
-          is_sorted=cfg.is_sorted,
-          is_raw=cfg.is_raw,
+          is_sorted=ds_cfg.is_sorted,
+          is_raw=ds_cfg.is_raw,
           fill_in_label=cfg.fill_in_label,
           name=dataset_name
       )
@@ -78,17 +73,29 @@ def get_data_loader(cfg, split, batch_size, dataset_name='kitti', ref_data_dir=N
     dataset = NuScene(
           data_dir,
           split,
-          cfg,
+          ds_cfg,
           shape=(cfg.img_prop.height, cfg.img_prop.width),
           flip=False,
           modality=cfg.modality,
           is_sorted=False,
-          is_raw=cfg.is_raw,
+          is_raw=ds_cfg.is_raw,
           fill_in_label=cfg.fill_in_label
       )
-  loader = torch.utils.data.DataLoader(dataset,batch_size=batch_size,
-                                                    shuffle= (split == 'train'),
-                                                    num_workers=4)
+  return dataset
+
+def get_data_loader(cfg, split, batch_size, dataset_name='', shuffle=True, two_dataset_enabled=True):
+  cfg_A = cfg.dataset.dataset_A
+  dataset_name_A = cfg_A.name if dataset_name == '' else dataset_name
+  ds_cfg_A = make_class_from_dict(yaml.safe_load(open(f'configs/{dataset_name_A}_cfg.yml', 'r')))
+  data_dir = cfg_A.data_dir
+  dataset_A = get_dataset(dataset_name_A, cfg_A, ds_cfg_A, data_dir, split)
+  dataset = dataset_A
+  if hasattr(cfg.dataset, 'dataset_B') and two_dataset_enabled:
+    cfg_B = cfg.dataset.dataset_B
+    ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/{cfg_B.name}_cfg.yml', 'r')))
+    dataset_B = get_dataset(cfg.dataset.dataset_B.name, cfg_B, ds_cfg_B, cfg_B.data_dir, split)
+    dataset = BinaryScan(dataset_A, dataset_B)
+  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4)
   return loader, dataset
 
 

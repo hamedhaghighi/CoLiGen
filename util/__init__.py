@@ -10,6 +10,22 @@ import torch.nn.functional as F
 import matplotlib
 import matplotlib.cm as cm
 # from util.geometry import estimate_surface_normal
+
+m2ch = {'label':1, 'RGB':3, 'reflectance':1, 'mask':1, 'inv':1, 'depth':1}
+
+
+def make_class_from_dict(opt):
+    if any([isinstance(k, int) for k in opt.keys()]):
+        return opt
+    else:
+        class dict_class():
+            def __init__(self):
+                for k , v in opt.items():
+                    if isinstance(v , dict):
+                        setattr(self, k, make_class_from_dict(v)) 
+                    else:
+                        setattr(self, k, v)
+        return dict_class()
     
 labels_mapping = {
     1: 0,
@@ -167,7 +183,7 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
         if 'inv' in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
             if not 'inv_orig' in key:
-                out[key + "_points"] = lidar.inv_to_xyz(out[key], tol)
+                out[key.replace('inv', 'points')] = lidar.inv_to_xyz(out[key], tol)
         elif "reflectance" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:

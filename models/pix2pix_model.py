@@ -18,28 +18,6 @@ class Pix2PixModel(BaseModel):
 
     pix2pix paper: https://arxiv.org/pdf/1611.07004.pdf
     """
-    @staticmethod
-    def modify_commandline_options(parser, is_train=True):
-        """Add new dataset-specific options, and rewrite default values for existing options.
-
-        Parameters:
-            parser          -- original option parser
-            is_train (bool) -- whether training phase or test phase. You can use this flag to add training-specific or test-specific options.
-
-        Returns:
-            the modified parser.
-
-        For pix2pix, we do not use image buffer
-        The training objective is: GAN Loss + lambda_L1 * ||G(A)-B||_1
-        By default, we use vanilla GAN loss, UNet with batchnorm, and aligned datasets.
-        """
-        # changing the default values to match the pix2pix paper (https://phillipi.github.io/pix2pix/)
-        parser.set_defaults(norm='batch', netG='unet_256', dataset_mode='aligned')
-        if is_train:
-            parser.set_defaults(pool_size=0, gan_mode='vanilla')
-            parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
-
-        return parser
 
     def __init__(self, opt, lidar):
         """Initialize the pix2pix class.
@@ -69,15 +47,12 @@ class Pix2PixModel(BaseModel):
         if 'reflectance' in opt_m.modality_B:
             self.visual_names.extend(['real_reflectance', 'synth_reflectance'])
             self.eval_metrics.append('reflectance_errors')
-        input_nc_G = len(opt_m.modality_A)
-        members = [attr for attr in dir(opt_m.out_ch) if not callable(getattr(opt_m.out_ch, attr)) and not attr.startswith("__")]
-        out_ch_values = [getattr(opt_m.out_ch, k) for k in members]
-        output_nc_G = np.array(out_ch_values).sum()
-        input_nc_D = len(opt_m.modality_B)
-        out_ch = {k: getattr(opt_m.out_ch, k) for k  in members}
+        input_nc_G = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
+        output_nc_G = np.array([m2ch[m] for m in opt_m.out_ch]).sum()
+        input_nc_D = np.array([m2ch[m] for m in opt_m.modality_B]).sum()
         same_kernel_size = opt.dataset.dataset_A.img_prop.width == opt.dataset.dataset_A.img_prop.height
         self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.norm,
-                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, out_ch, same_kernel_size=same_kernel_size)
+                                      not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch, same_kernel_size=same_kernel_size)
 
         self.netD = networks.define_D(input_nc_D + input_nc_G, opt_m.ndf, opt_m.netD,
                                         opt_m.n_layers_D, opt_m.norm, opt_m.init_type, opt_m.init_gain, self.gpu_ids)
@@ -91,14 +66,14 @@ class Pix2PixModel(BaseModel):
         self.lidar = lidar
         self.opt_m = opt_m
         if self.isTrain:
-            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt_t.lr, betas=(opt_m.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt_t.lr, betas=(opt_m.beta1, 0.999))
+            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
    
 
-    def set_input_PCL(self, data):
+    def set_input(self, data):
         data = fetch_reals(data, self.lidar, self.device)
         for k, v in data.items():
             setattr(self, 'real_' + k, v)
@@ -139,13 +114,8 @@ class Pix2PixModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        out = self.netG(self.real_A) # G(A)
-        data_list = []
-        for m in self.opt.model.modality_B:
-            assert m in out
-            data_list.append(out[m])
-        self.fake_B = torch.cat(data_list, dim=1)
-        for k , v in out.items():
+        out_dict, self.fake_B  = self.netG(self.real_A) # G(A)
+        for k , v in out_dict.items():
             setattr(self, 'synth_' + k , v)
         
 

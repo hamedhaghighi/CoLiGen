@@ -210,18 +210,11 @@ class LiDAR(Coordinate):
         num_ring,
         num_points,
         angle_file,
-        dataset_name=None
+        min_depth=0.9,
+        max_depth=120.0
     ):
         assert os.path.exists(angle_file), angle_file
         self.angle_file = angle_file
-        if dataset_name == 'nuscene':
-            from dataset.nuscene import MIN_DEPTH
-            from dataset.nuscene import MAX_DEPTH
-            min_depth, max_depth = MIN_DEPTH, MAX_DEPTH
-        elif dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
-            from dataset.kitti_odometry import MIN_DEPTH
-            from dataset.kitti_odometry import MAX_DEPTH
-            min_depth, max_depth = MIN_DEPTH, MAX_DEPTH
 
         super().__init__(
             min_depth=min_depth,

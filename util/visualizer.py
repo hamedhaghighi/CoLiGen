@@ -22,7 +22,7 @@ if sys.version_info[0] == 2:
 else:
     VisdomExceptionBase = ConnectionError
 
-def visualize_tensor(pts, depth, dataset_name):
+def visualize_tensor(pts, depth):
 
     # depth_range = np.exp2(lidar_range*6)-1
     color = plt.cm.viridis(np.clip(depth, 0, 1).flatten())
@@ -48,10 +48,7 @@ def visualize_tensor(pts, depth, dataset_name):
     render.scene.scene.enable_sun_light(True)
     render.scene.camera.look_at([0, 0, 0], [0, 0, 1], [0, 1, 0])
     bev_img = render.render_to_image()
-    # if dataset_name == 'kitti':
     render.setup_camera(60.0, [0, 0, 0], [-0.2, 0, 0.1], [0, 0, 1])
-    # elif dataset_name == 'nuscene':
-        # render.setup_camera(60.0, [0, 0, 0], [0.0, -0.2, 0.1], [0, 0, 1])
     pts_img = render.render_to_image()
     return bev_img, pts_img
 
@@ -138,10 +135,10 @@ class Visualizer():
         for k , v in visuals.items():
             if 'points' in k:
                 points = flatten(v)
-                inv = visuals['real_inv'] if 'real' in k else visuals['synth_inv']
+                inv = visuals[k.replace('points', 'inv')]
                 image_list = []
                 for i in range(points.shape[0]):
-                    _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5, dataset_name=self.dataset_name)
+                    _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5)
                     image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
                 visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
         for k , img_tensor in visuals.items():
