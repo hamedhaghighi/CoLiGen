@@ -59,7 +59,7 @@ def get_dataset(dataset_name, cfg, ds_cfg, data_dir, split):
   if dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
     dataset = KITTIOdometry(
           data_dir,
-          split if dataset_name == 'kitti' else dataset_name,
+          split if (dataset_name == 'kitti' or dataset_name == 'carla') else dataset_name,
           ds_cfg,
           shape=(cfg.img_prop.height, cfg.img_prop.width),
           flip=False,

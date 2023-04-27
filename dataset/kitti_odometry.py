@@ -23,6 +23,13 @@ CONFIG = {
         "synthlidar": [9]
     },
 }
+CONFIG_CARLA = {
+    "split": {
+        "train": [0, 1, 2, 3, 4, 6, 10],
+        "val": [5]
+    },
+}
+ 
 
 
 MIN_DEPTH = 0.9
@@ -48,7 +55,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         super().__init__()
         self.root = osp.join(root, "sequences")
         self.split = split
-        self.config = CONFIG
+        self.config = CONFIG_CARLA if name == 'carla' else CONFIG
         self.subsets = np.asarray(self.config["split"][split])
         self.shape = tuple(shape)
         self.min_depth = MIN_DEPTH
