@@ -64,7 +64,7 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True):
+def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, has_rgb=False):
     xyz = points[:, :3]  # xyz
     x = xyz[:, 0]
     y = xyz[:, 1]
@@ -78,7 +78,7 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
         pitch = np.arcsin(z / depth)
         # print(np.round(pitch, 3).min(), np.round(pitch, 3).max())
         grid_h = 1.0 - (pitch + abs(fov_down)) / fov
-        grid_h = np.clip(np.floor(grid_h * H), 0, H-1)
+        grid_h = np.clip(np.round(grid_h * H), 0, H-1)
     else:
         # the i-th quadrant
         # suppose the points are ordered counterclockwise
@@ -98,20 +98,23 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
         
     # horizontal grid
     yaw = -np.arctan2(y, x)  # [-pi,pi]
-    # print(np.round(yaw, 3).min(), np.round(yaw, 3).max())
-    grid_w = (yaw / np.pi + 1) / 2  # [0,1]
-    grid_w = np.clip(np.floor(grid_w * W), 0, W - 1)
+    if has_rgb:
+        grid_w = (yaw / (np.pi / 4) + 1) / 2  # [0,1]
+    else:
+        grid_w = (yaw / np.pi + 1) / 2  # [0,1]
+    grid_w = np.clip(np.round(grid_w * W), 0, W - 1)
     grid = np.stack((grid_h, grid_w), axis=-1).astype(np.int32)
     proj = projection(points, grid, order, H, W)
     return proj, grid
 
 class Coordinate(nn.Module):
-    def __init__(self, min_depth, max_depth, shape, drop_const=0) -> None:
+    def __init__(self, min_depth, max_depth, shape, drop_const=0, has_rgb=False) -> None:
         super().__init__()
         self.min_depth = min_depth
         self.max_depth = max_depth
         self.H, self.W = shape
         self.drop_const = drop_const
+        self.has_rgb = has_rgb
         self.register_buffer("angle", self.init_coordmap(self.H, self.W))
 
     def init_coordmap(self, H, W):
@@ -211,7 +214,8 @@ class LiDAR(Coordinate):
         num_points,
         angle_file,
         min_depth=0.9,
-        max_depth=120.0
+        max_depth=120.0,
+        has_rgb=False
     ):
         assert os.path.exists(angle_file), angle_file
         self.angle_file = angle_file
@@ -220,18 +224,22 @@ class LiDAR(Coordinate):
             min_depth=min_depth,
             max_depth=max_depth,
             shape=(num_ring, num_points),
+            has_rgb=has_rgb
         )
 
     def init_coordmap(self, H, W):
-        angle = torch.load(self.angle_file)[None]
+        # angle = torch.load(self.angle_file)[None]
+        fov_up = 3.0 / 180.0 * np.pi     
+        fov_down = -25.0 / 180.0 * np.pi  
+        fov = abs(fov_down) + abs(fov_up)
+        pitch = (1 - (torch.arange(H) / H)) * fov - abs(fov_down)
+        if self.has_rgb:
+            yaw = (1 - (torch.arange(512) / 512) * 2) * (np.pi / 4)
+        else:
+            yaw = (1 - (torch.arange(2048) / 2048) * 2) * np.pi
+        pitch_grid, yaw_grid = torch.meshgrid(pitch, yaw)
+        angle = torch.stack([pitch_grid, yaw_grid], dim=0)[None]
         angle = F.interpolate(angle, size=(H, W), mode="bilinear")
-        # fov_up = 3.0 / 180.0 * np.pi     
-        # fov_down = -25.0 / 180.0 * np.pi  
-        # fov = abs(fov_down) + abs(fov_up)
-        # pitch = (1 - (torch.arange(H) / H)) * fov - abs(fov_down)
-        # yaw = (1 - (torch.arange(W) / W) * 2) * np.pi
-        # pitch_grid, yaw_grid = torch.meshgrid(pitch, yaw)
-        # angle = torch.stack([pitch_grid, yaw_grid], dim=0)[None]
         return angle
 
 

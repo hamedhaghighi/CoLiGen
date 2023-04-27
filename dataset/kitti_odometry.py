@@ -12,7 +12,7 @@ from util.lidar import point_cloud_to_xyz_image
 from util import _map
 from PIL import Image
 from scipy import ndimage as nd
-import pykitti
+from collections import namedtuple
 
 CONFIG = {
     "split": {
@@ -45,7 +45,6 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         is_raw=True,
         fill_in_label=False,
         name='kitti'):
-
         super().__init__()
         self.root = osp.join(root, "sequences")
         self.split = split
@@ -64,13 +63,80 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         self.DATA = DATA
         self.fill_in_label = fill_in_label
         self.name = name
+        self.has_rgb = False
         if 'rgb' in modality:
-            pykitti_dataset = pykitti.odometry(root, '00')
-            self.velo_to_camera_rect = pykitti_dataset.calib.T_cam2_velo
-            self.cam_intrinsic = pykitti_dataset.calib.P_rect_20
+            self.has_rgb = True
+            calib = self.load_calib()
+            self.velo_to_camera_rect =calib.T_cam2_velo
+            self.cam_intrinsic = calib.P_rect_20
         self.load_datalist()
 
+    def load_calib(self):
+        """Load and compute intrinsic and extrinsic calibration parameters."""
+        # We'll build the calibration parameters as a dictionary, then
+        # convert it to a namedtuple to prevent it from being modified later
+        data = {}
+        sequence_path = os.path.join(self.root, '00')
+        # Load the calibration file
+        calib_filepath = os.path.join(sequence_path, 'calib.txt')
+        filedata = {}
 
+        with open(calib_filepath, 'r') as f:
+            for line in f.readlines():
+                key, value = line.split(':', 1)
+                try:
+                    filedata[key] = np.array([float(x) for x in value.split()])
+                except ValueError:
+                    pass
+
+        # Create 3x4 projection matrices
+        P_rect_00 = np.reshape(filedata['P0'], (3, 4))
+        P_rect_10 = np.reshape(filedata['P1'], (3, 4))
+        P_rect_20 = np.reshape(filedata['P2'], (3, 4))
+        P_rect_30 = np.reshape(filedata['P3'], (3, 4))
+
+        data['P_rect_00'] = P_rect_00
+        data['P_rect_10'] = P_rect_10
+        data['P_rect_20'] = P_rect_20
+        data['P_rect_30'] = P_rect_30
+
+        # Compute the rectified extrinsics from cam0 to camN
+        T1 = np.eye(4)
+        T1[0, 3] = P_rect_10[0, 3] / P_rect_10[0, 0]
+        T2 = np.eye(4)
+        T2[0, 3] = P_rect_20[0, 3] / P_rect_20[0, 0]
+        T3 = np.eye(4)
+        T3[0, 3] = P_rect_30[0, 3] / P_rect_30[0, 0]
+
+        # Compute the velodyne to rectified camera coordinate transforms
+        data['T_cam0_velo'] = np.reshape(filedata['Tr'], (3, 4))
+        data['T_cam0_velo'] = np.vstack([data['T_cam0_velo'], [0, 0, 0, 1]])
+        data['T_cam1_velo'] = T1.dot(data['T_cam0_velo'])
+        data['T_cam2_velo'] = T2.dot(data['T_cam0_velo'])
+        data['T_cam3_velo'] = T3.dot(data['T_cam0_velo'])
+
+        # Compute the camera intrinsics
+        data['K_cam0'] = P_rect_00[0:3, 0:3]
+        data['K_cam1'] = P_rect_10[0:3, 0:3]
+        data['K_cam2'] = P_rect_20[0:3, 0:3]
+        data['K_cam3'] = P_rect_30[0:3, 0:3]
+
+        # Compute the stereo baselines in meters by projecting the origin of
+        # each camera frame into the velodyne frame and computing the distances
+        # between them
+        p_cam = np.array([0, 0, 0, 1])
+        p_velo0 = np.linalg.inv(data['T_cam0_velo']).dot(p_cam)
+        p_velo1 = np.linalg.inv(data['T_cam1_velo']).dot(p_cam)
+        p_velo2 = np.linalg.inv(data['T_cam2_velo']).dot(p_cam)
+        p_velo3 = np.linalg.inv(data['T_cam3_velo']).dot(p_cam)
+
+        data['b_gray'] = np.linalg.norm(p_velo1 - p_velo0)  # gray baseline
+        data['b_rgb'] = np.linalg.norm(p_velo3 - p_velo2)   # rgb baseline
+
+        calib = namedtuple('CalibData', data.keys())(*data.values())
+        return calib
+
+    
     def fill(self, data, invalid=None):
         if invalid is None: invalid = np.isnan(data)
         ind = nd.distance_transform_edt(invalid, return_distances=False, return_indices=True)
@@ -87,14 +153,21 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             labels_list += list(sub_labels_paths)
         self.datalist = datalist
         self.labels_list = labels_list
-        if 'rgb' in self.modality:
-            self.rgb_list = datalist.replace('velodyne', 'image_2').replace('bin', 'jpeg')
+        if self.has_rgb:
+            self.rgb_list = [d.replace('velodyne', 'image_2').replace('bin', 'png') for d in self.datalist]
 
     def preprocess(self, out):
         out["depth"] = np.linalg.norm(out["points"], ord=2, axis=2)
         if 'label' in out and self.fill_in_label:
           fill_in_mask = ~ (out["depth"] > 0.0)
           out['label'] = self.fill(out['label'], fill_in_mask)
+        if self.name == 'carla':
+            fill_in_mask = ~ (out["depth"] > 0.0)
+            out['depth'] = self.fill(out['depth'], fill_in_mask)
+            if 'reflectance' in out:
+                out['reflectance'] = self.fill(out['reflectance'], fill_in_mask)
+            if 'rgb' in out:
+                out['rgb'] = self.fill(out['rgb'], fill_in_mask)
         mask = (
             (out["depth"] > 0.0)
             & (out["depth"] > self.min_depth)
@@ -105,9 +178,12 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         out["mask"] = mask
         out["points"] /= self.max_depth  # unit space
         for key in out.keys():
-          if (key == 'label' and self.fill_in_label) or (key == 'rgb'):
-            continue
-          out[key][~mask] = 0
+            if key == 'label' and self.fill_in_label:
+                continue
+            if key == 'rgb':
+                out[key][~np.repeat(mask[:, :, None], 3, 2)] = 0
+            else:
+                out[key][~mask] = 0
         return out
 
     def transform(self, out):
@@ -154,16 +230,16 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                     sem_label = _map(_map(sem_label, self.DATA.learning_map), self.DATA.m_learning_map)
                 point_cloud = np.concatenate([point_cloud, sem_label.astype('float32')[:, None]], axis=1)
                 
-            if 'rgb' in self.modality:
+            if self.has_rgb:
                 rgb_path = self.rgb_list[index]
                 rgb_image = np.array(Image.open(rgb_path))
                 rgb = self.image_to_pcl(rgb_image, point_cloud)
                 point_cloud = np.concatenate([point_cloud, rgb.astype('float32')], axis=1)
             if self.name == 'kitti' or self.name=='carla': 
-                W = 2048
+                W = 512 if self.has_rgb else 2048
             elif self.name == 'synthlidar':
                 W = 1570
-            points, _ = point_cloud_to_xyz_image(point_cloud, H=self.shape[0], W=W, is_sorted=self.is_sorted)
+            points, _ = point_cloud_to_xyz_image(point_cloud, H=self.shape[0], W=W, is_sorted=self.is_sorted, has_rgb=self.has_rgb)
             
         out = {}
         out["points"] = points[..., :3]
@@ -171,8 +247,8 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             out["reflectance"] = points[..., [3]]
         if "label" in self.modality:
             out["label"] = points[..., [4]]
-        if 'rgb' in self.modality:
-            out["rgb"] = points[..., -3:].transpose(2, 0 ,1) / 255.0
+        if self.has_rgb:
+            out["rgb"] = points[..., -3:]/ 255.0
         out = self.preprocess(out)
         out = self.transform(out)
         return out

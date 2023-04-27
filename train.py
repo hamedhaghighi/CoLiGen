@@ -30,11 +30,11 @@ def cycle(iterable):
             yield x
 
 def inv_to_xyz(inv, lidar, tol=1e-8):
-        inv = tanh_to_sigmoid(inv).clamp_(0, 1)
-        xyz = lidar.inv_to_xyz(inv, tol)
-        xyz = xyz.flatten(2).transpose(1, 2)  # (B,N,3)
-        xyz = downsample_point_clouds(xyz, 512)
-        return xyz
+    inv = tanh_to_sigmoid(inv).clamp_(0, 1)
+    xyz = lidar.inv_to_xyz(inv, tol)
+    xyz = xyz.flatten(2).transpose(1, 2)  # (B,N,3)
+    xyz = downsample_point_clouds(xyz, 512)
+    return xyz
 
 
 
@@ -55,7 +55,7 @@ class M_parser():
 
 
 def modify_opt_for_fast_test(opt):
-    opt.n_epochs = 1
+    opt.n_epochs = 2
     opt.epoch_decay = opt.n_epochs//2
     opt.display_freq = 1
     opt.print_freq = 1
@@ -77,9 +77,18 @@ def check_exp_exists(opt, cfg_args):
     elif cfg_args.fast_test:
         opt_t.name = 'test'
     else:
-        opt_t.name = f'modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
-            + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
-                + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
+        if 'pix2pix' in opt_m.name:
+            opt_t.name = f'pix2pix_modality_A_{modality_A}_out_ch_{out_ch}_L_L1_{opt_m.lambda_L1}' \
+                + f'_L_GAN_{opt_m.lambda_LGAN}_L_mask_{opt_m.lambda_mask}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
+                    + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
+        elif 'cycle_gan' in opt_m.name:
+            opt_t.name = f'cycle_gan_modality_A_{modality_A}_out_ch_{out_ch}_lambda_A_{opt_m.lambda_A}_lambda_B_{opt_m.lambda_B}_lambda_idt_{opt_m.lambda_idt}' \
+                + f'_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
+                    + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
+        elif 'gc_gan' in opt_m.name:
+            opt_t.name = f'gc_gan_modality_A_{modality_A}_out_ch_{out_ch}_lambda_idt_{opt_m.identity}_lambda_AB_{opt_m.lambda_AB}' \
+                + f'_lambda_gc_{opt_m.lambda_gc}_lambda_g_{opt_m.lambda_g}_lambda_G_{opt_m.lambda_G}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
+                    + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
         
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
     if not opt_t.continue_train and opt_t.isTrain:
@@ -106,6 +115,7 @@ if __name__ == '__main__':
     parser.add_argument('--load', type=str, default='', help='if load true the exp name comes from checkpoint path')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--ref_dataset_name', type=str, default='', help='fast test of experiment')
+    parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on input_dataset')
 
     cl_args = parser.parse_args()
@@ -128,19 +138,20 @@ if __name__ == '__main__':
     if hasattr(opt.dataset, 'dataset_B'):
         is_two_dataset = True
     device = torch.device('cuda:{}'.format(opt.training.gpu_ids[0])) if opt.training.gpu_ids else torch.device('cpu') 
-    ds_cfg = make_class_from_dict(yaml.safe_load(open(f'configs/{opt.dataset.dataset_A.name}_cfg.yml', 'r')))
+    ds_cfg = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{opt.dataset.dataset_A.name}_cfg.yml', 'r')))
     if not hasattr(opt.dataset.dataset_A, 'data_dir'):
         opt.dataset.dataset_A.data_dir = ds_cfg.data_dir
     if is_two_dataset:
         if not hasattr(opt.dataset.dataset_B, 'data_dir'):
-            ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/{opt.dataset.dataset_B.name}_cfg.yml', 'r')))
+            ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{opt.dataset.dataset_B.name}_cfg.yml', 'r')))
             opt.dataset.dataset_B.data_dir = ds_cfg_B.data_dir
     lidar = LiDAR(
     num_ring=opt.dataset.dataset_A.img_prop.height,
     num_points=opt.dataset.dataset_A.img_prop.width,
     angle_file=os.path.join(opt.dataset.dataset_A.data_dir, "angles.pt"),
     min_depth=ds_cfg.min_depth,
-    max_depth=ds_cfg.max_depth
+    max_depth=ds_cfg.max_depth,
+    has_rgb = 'rgb' in opt.model.modality_A
     )
     lidar.to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
@@ -163,7 +174,6 @@ if __name__ == '__main__':
         data_dict['real-2d'].append(data['inv'])
         data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar))
         test_tq.update(1)
-
     epoch_tq = tqdm.tqdm(total=opt.training.n_epochs, desc='Epoch', position=1)
     start_from_epoch = model.schedulers[0].last_epoch if opt.training.continue_train else 0 
     min_jsd = 10
@@ -218,7 +228,8 @@ if __name__ == '__main__':
         tag = 'val' if opt.training.isTrain else 'test'
         val_tq = tqdm.tqdm(total=n_val_batch, desc='val_Iter', position=5)
         dis_batch_ind = np.random.randint(0, n_val_batch)
-        data_dict['synth-2d'], data_dict['synth-3d'] = [], []
+        data_dict['synth-2d'] = [] 
+        data_dict['synth-3d'] = []
         fid_samples = [] if fid_cls is not None else None
         for i in range(n_val_batch):
             data = next(val_dl_iter)
@@ -240,7 +251,7 @@ if __name__ == '__main__':
             data_dict['synth-2d'].append(synth_inv)
             data_dict['synth-3d'].append(inv_to_xyz(synth_inv, lidar))
 
-            if fid_cls is not None and len(fid_samples) < 100:
+            if fid_cls is not None and len(fid_samples) < cl_args.n_fid:
                 synth_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
                 synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
                 synth_reflectance = tanh_to_sigmoid(synth_reflectance)
@@ -264,10 +275,10 @@ if __name__ == '__main__':
         
         ##### calculating unsupervised metrics
 
-       
 
         for k ,v in data_dict.items():
-            data_dict[k] = torch.cat(v, dim=0)[: N]
+            if isinstance(v, list):
+                data_dict[k] = torch.cat(v, dim=0)[: N]
         scores = {}
         scores.update(compute_swd(data_dict["synth-2d"], data_dict["real-2d"]))
         scores["jsd"] = compute_jsd(data_dict["synth-3d"] / 2.0, data_dict["real-3d"] / 2.0)
@@ -276,7 +287,6 @@ if __name__ == '__main__':
             model.save_networks('best')
 
         scores.update(compute_cov_mmd_1nna(data_dict["synth-3d"], data_dict["real-3d"], 512, ("cd",)))
-        del data_dict
         torch.cuda.empty_cache()
         if fid_cls is not None:
             scores['fid'] = fid_cls.fid_score(torch.cat(fid_samples, dim=0))

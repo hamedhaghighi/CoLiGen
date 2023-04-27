@@ -85,13 +85,10 @@ class GcGANModel(BaseModel):
         for k, v in data_B.items():
             setattr(self, 'real_B_' + k, v)
         data_list = []
-        for m in self.opt.model.modality_A:
-            data_list.append(data_A[m])
-        self.real_A = torch.cat(data_list, dim=1)
-        data_list = []
-        for m in self.opt.model.modality_B:
-            data_list.append(data_B[m])
-        self.real_B = torch.cat(data_list, dim=1)
+        self.real_A = cat_modality(data_A, self.opt.model.modality_A)
+        self.real_B = cat_modality(data_B, self.opt.model.modality_B)
+        self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
+        self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
 
     def backward_D_basic(self, netD, real, fake, netD_gc, real_gc, fake_gc):
         # Real
@@ -187,11 +184,11 @@ class GcGANModel(BaseModel):
         # adversariasl loss
         fake_B = self.fake_B
         pred_fake = self.netD_B.forward(fake_B)
-        loss_G_AB = self.criterionGAN(pred_fake, True)*self.opt.model.lambda_G
+        loss_G_AB = self.criterionGAN(pred_fake, True) * self.opt.model.lambda_G
         
         _, fake_gc_B = self.netG_gc_AB.forward(self.real_gc_A)
         pred_fake = self.netD_gc_B.forward(fake_gc_B)
-        loss_G_gc_AB = self.criterionGAN(pred_fake, True)*self.opt.model.lambda_G
+        loss_G_gc_AB = self.criterionGAN(pred_fake, True) * self.opt.model.lambda_G
 
         if self.opt.model.geometry == 'rot':
             loss_gc = self.get_gc_rot_loss(fake_B, fake_gc_B, 0)
@@ -200,7 +197,7 @@ class GcGANModel(BaseModel):
 
         if self.opt.model.identity > 0:
             # G_AB should be identity if real_B is fed.
-            _, idt_A = self.netG_AB(self.real_B)
+            _, idt_A = self.netG_AB(self.real_B_mod_A)
             loss_idt = self.criterionIdt(idt_A, self.real_B) * self.opt.model.lambda_AB * self.opt.model.identity
             idt_gc_A = self.netG_gc_AB(self.real_gc_B)
             loss_idt_gc = self.criterionIdt(idt_gc_A, self.real_gc_B) * self.opt.model.lambda_AB * self.opt.model.identity
@@ -227,7 +224,7 @@ class GcGANModel(BaseModel):
         self.loss_gc = loss_gc.item()
 
     def evaluate_model(self):
-            self.forward()
+        self.forward()
 
     def optimize_parameters(self):
         # forward

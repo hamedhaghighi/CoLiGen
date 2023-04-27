@@ -9,9 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib
 import matplotlib.cm as cm
+import os
 # from util.geometry import estimate_surface_normal
 
-m2ch = {'label':1, 'RGB':3, 'reflectance':1, 'mask':1, 'inv':1, 'depth':1}
+m2ch = {'label':1, 'rgb':3, 'reflectance':1, 'mask':1, 'inv':1, 'depth':1}
 
 
 def make_class_from_dict(opt):
@@ -61,7 +62,14 @@ labels_mapping = {
     28: 15,
     30: 16
 }
-
+def cat_modality(data_dict, modality):
+    data_list = []
+    for m in modality:
+        assert m in data_dict
+        data_list.append(data_dict[m])
+    out = torch.cat(data_list, dim=1)
+    return out
+    
 def fetch_reals(data, lidar, device):
     mask = data["mask"].float()
     inv = lidar.invert_depth(data["depth"])
@@ -73,6 +81,8 @@ def fetch_reals(data, lidar, device):
         reflectance = sigmoid_to_tanh(reflectance)
         reflectance = mask * reflectance + (1 - mask) * -1
         batch['reflectance'] = reflectance
+    if 'rgb' in data:
+        batch['rgb'] = sigmoid_to_tanh(data['rgb'])
     if 'label' in data:
         batch['label'] = data['label']
     for k , v in batch.items():
@@ -193,6 +203,8 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
             elif dataset_name == 'nuscene':
                 label_tensor = _map(_map(_map(value.squeeze().long(), labels_mapping), data_maps.learning_map_inv), data_maps.color_map)
                 out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
+        elif 'rgb' in key:
+            out[key] = tanh_to_sigmoid(value).clamp_(0, 1) * 255.0
         else:
             out[key] = value
     return out

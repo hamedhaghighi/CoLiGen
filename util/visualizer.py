@@ -142,7 +142,7 @@ class Visualizer():
                     image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
                 visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
         for k , img_tensor in visuals.items():
-            color = False if ('points' in k or 'label' in k) else True
+            color = False if ('points' in k or 'label' in k or 'rgb' in k) else True
             cmap = 'viridis' if ('reflectance' in k) else 'turbo'
             self.log_imgs(img_tensor, phase + '/' + k, g_step, color, cmap)
 
