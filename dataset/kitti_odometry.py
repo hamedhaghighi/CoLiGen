@@ -19,7 +19,6 @@ CONFIG = {
         "train": [0, 1, 2, 3, 4, 5, 6, 7, 9],
         "val": [8],
         "test": [10],
-        "carla": [0],
         "synthlidar": [9]
     },
 }
@@ -70,8 +69,9 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         self.DATA = DATA
         self.fill_in_label = fill_in_label
         self.name = name
-        self.has_rgb = False
-        if 'rgb' in modality:
+        self.has_rgb = 'rgb' in modality
+        self.has_label = 'label' in modality
+        if self.has_rgb:
             self.has_rgb = True
             calib = self.load_calib()
             self.velo_to_camera_rect =calib.T_cam2_velo
@@ -151,17 +151,16 @@ class  KITTIOdometry(torch.utils.data.Dataset):
 
     def load_datalist(self):
         datalist = []
-        labels_list=[]
         for subset in self.subsets:
             subset_dir = osp.join(self.root, str(subset).zfill(2))
             sub_point_paths = sorted(glob(osp.join(subset_dir, "velodyne/*")))
-            sub_labels_paths = sorted(glob(osp.join(subset_dir, "labels/*")))
             datalist += list(sub_point_paths)
-            labels_list += list(sub_labels_paths)
         self.datalist = datalist
-        self.labels_list = labels_list
+    
+        if self.has_label:
+            self.label_list = [d.replace('velodyne', 'labels').replace('bin' if self.is_raw else 'npy', 'label' if self.is_raw else 'png') for d in self.datalist]
         if self.has_rgb:
-            self.rgb_list = [d.replace('velodyne', 'image_2').replace('bin', 'png') for d in self.datalist]
+            self.rgb_list = [d.replace('velodyne', 'image_2').replace('bin' if self.is_raw else 'npy', 'png') for d in self.datalist]
 
     def preprocess(self, out):
         out["depth"] = np.linalg.norm(out["points"], ord=2, axis=2)
@@ -218,16 +217,24 @@ class  KITTIOdometry(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         points_path = self.datalist[index]
-        labels_path = self.labels_list[index]
         if not self.is_raw:
             points = np.load(points_path).astype(np.float32)
-            if "label" in self.modality:
+            if self.has_label:
+                labels_path = self.label_list[index]
                 sem_label = np.array(Image.open(labels_path))
                 sem_label = _map(sem_label, self.DATA.m_learning_map)
                 points = np.concatenate([points, sem_label.astype('float32')[..., None]], axis=-1)
+            if self.has_rgb:
+                rgb_path = self.rgb_list[index]
+                rgb = np.array(Image.open(rgb_path))
+                points = np.concatenate([points, rgb.astype('float32')], axis=-1)
+                _, W, _ = points.shape
+                points = points[:, int(3*W/8) : int(5*W/8), :]
+
         else:
             point_cloud = np.fromfile(points_path, dtype=np.float32).reshape((-1, 4))
-            if "label" in self.modality:
+            if self.has_label:
+                labels_path = self.label_list[index]
                 if self.name == 'kitti' or self.name=='carla':
                     label = np.fromfile(labels_path, dtype=np.int32)
                     sem_label = label & 0xFFFF 
@@ -236,7 +243,6 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                     sem_label = np.fromfile(labels_path, dtype=np.uint32)
                     sem_label = _map(_map(sem_label, self.DATA.learning_map), self.DATA.m_learning_map)
                 point_cloud = np.concatenate([point_cloud, sem_label.astype('float32')[:, None]], axis=1)
-                
             if self.has_rgb:
                 rgb_path = self.rgb_list[index]
                 rgb_image = np.array(Image.open(rgb_path))
@@ -262,10 +268,3 @@ class  KITTIOdometry(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.datalist)
-
-    # def __repr__(self) -> str:
-    #     head = "Dataset " + self.__class__.__name__
-    #     body = ["Number of datapoints: {}".format(self.__len__())]
-    #     body.append("Root location: {}".format(self.root))
-    #     lines = [head] + ["    " + line for line in body]
-    #     return "\n".join(lines)

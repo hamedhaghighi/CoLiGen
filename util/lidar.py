@@ -217,7 +217,7 @@ class LiDAR(Coordinate):
         max_depth=120.0,
         has_rgb=False
     ):
-        assert os.path.exists(angle_file), angle_file
+        # assert os.path.exists(angle_file), angle_file
         self.angle_file = angle_file
 
         super().__init__(

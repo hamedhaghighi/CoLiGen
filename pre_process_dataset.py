@@ -17,6 +17,23 @@ from nuscenes.nuscenes import NuScenes
 import pathlib
 from dataset.kitti_odometry import KITTIOdometry
 from dataset.nuscene import NuScene
+from collections import namedtuple
+
+def car2hom(pc):
+    return np.concatenate([pc[:, :3], np.ones((pc.shape[0], 1), dtype=pc.dtype)], axis=-1)
+
+def image_to_pcl(rgb_image, point_cloud, velo_to_camera_rect, cam_intrinsic):
+        rgb = np.zeros((len(point_cloud),3), dtype=np.int32)
+        height, width, _ = rgb_image.shape
+        hom_pcl_points = car2hom(point_cloud[:, :3]).T
+        pcl_in_cam_rect = np.dot(velo_to_camera_rect, hom_pcl_points)
+        pcl_in_image = np.dot(cam_intrinsic, pcl_in_cam_rect)
+        pcl_in_image = np.array([pcl_in_image[0] / pcl_in_image[2], pcl_in_image[1] / pcl_in_image[2], pcl_in_image[2]])
+        canvas_mask = (pcl_in_image[0] > 0.0) & (pcl_in_image[0] < width) & (pcl_in_image[1] > 0.0)\
+            & (pcl_in_image[1] < height) & (pcl_in_image[2] > 0.0)
+        valid_pcl_in_image = pcl_in_image[:, canvas_mask].astype('int32')
+        rgb[canvas_mask] = rgb_image[valid_pcl_in_image[1], valid_pcl_in_image[0], :]
+        return rgb
 
 def _map(label, mapdict):
     # put label from original values to xentropy
@@ -50,22 +67,91 @@ _n_classes = max(labelmap.values()) + 1
 _colors = cm.turbo(np.asarray(range(_n_classes)) / (_n_classes - 1))[:, :3] * 255
 palette = list(np.uint8(_colors).flatten())
 
+def load_calib(root):
+        """Load and compute intrinsic and extrinsic calibration parameters."""
+        # We'll build the calibration parameters as a dictionary, then
+        # convert it to a namedtuple to prevent it from being modified later
+        data = {}
+        sequence_path = os.path.join(root, '00')
+        # Load the calibration file
+        calib_filepath = os.path.join(sequence_path, 'calib.txt')
+        filedata = {}
+
+        with open(calib_filepath, 'r') as f:
+            for line in f.readlines():
+                key, value = line.split(':', 1)
+                try:
+                    filedata[key] = np.array([float(x) for x in value.split()])
+                except ValueError:
+                    pass
+
+        # Create 3x4 projection matrices
+        P_rect_00 = np.reshape(filedata['P0'], (3, 4))
+        P_rect_10 = np.reshape(filedata['P1'], (3, 4))
+        P_rect_20 = np.reshape(filedata['P2'], (3, 4))
+        P_rect_30 = np.reshape(filedata['P3'], (3, 4))
+
+        data['P_rect_00'] = P_rect_00
+        data['P_rect_10'] = P_rect_10
+        data['P_rect_20'] = P_rect_20
+        data['P_rect_30'] = P_rect_30
+
+        # Compute the rectified extrinsics from cam0 to camN
+        T1 = np.eye(4)
+        T1[0, 3] = P_rect_10[0, 3] / P_rect_10[0, 0]
+        T2 = np.eye(4)
+        T2[0, 3] = P_rect_20[0, 3] / P_rect_20[0, 0]
+        T3 = np.eye(4)
+        T3[0, 3] = P_rect_30[0, 3] / P_rect_30[0, 0]
+
+        # Compute the velodyne to rectified camera coordinate transforms
+        data['T_cam0_velo'] = np.reshape(filedata['Tr'], (3, 4))
+        data['T_cam0_velo'] = np.vstack([data['T_cam0_velo'], [0, 0, 0, 1]])
+        data['T_cam1_velo'] = T1.dot(data['T_cam0_velo'])
+        data['T_cam2_velo'] = T2.dot(data['T_cam0_velo'])
+        data['T_cam3_velo'] = T3.dot(data['T_cam0_velo'])
+
+        # Compute the camera intrinsics
+        data['K_cam0'] = P_rect_00[0:3, 0:3]
+        data['K_cam1'] = P_rect_10[0:3, 0:3]
+        data['K_cam2'] = P_rect_20[0:3, 0:3]
+        data['K_cam3'] = P_rect_30[0:3, 0:3]
+
+        # Compute the stereo baselines in meters by projecting the origin of
+        # each camera frame into the velodyne frame and computing the distances
+        # between them
+        p_cam = np.array([0, 0, 0, 1])
+        p_velo0 = np.linalg.inv(data['T_cam0_velo']).dot(p_cam)
+        p_velo1 = np.linalg.inv(data['T_cam1_velo']).dot(p_cam)
+        p_velo2 = np.linalg.inv(data['T_cam2_velo']).dot(p_cam)
+        p_velo3 = np.linalg.inv(data['T_cam3_velo']).dot(p_cam)
+
+        data['b_gray'] = np.linalg.norm(p_velo1 - p_velo0)  # gray baseline
+        data['b_rgb'] = np.linalg.norm(p_velo3 - p_velo2)   # rgb baseline
+
+        calib = namedtuple('CalibData', data.keys())(*data.values())
+        return calib
 
 
-
-def process_point_clouds(point_path, H, W):
-    save_dir = lambda x: x.replace("dataset/sequences", "dusty-gan/sequences")
+def process_point_clouds(point_path, H, W, calib=None, is_sorted=True):
+    save_dir = lambda x: x.replace("dataset/sequences", "projected/sequences")
     # setup point clouds
     points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 4))
     # for semantic kitti
-    label_path = point_path.replace("/velodyne", "/labels")
-    label_path = label_path.replace(".bin", ".label")
+    label_path = point_path.replace("/velodyne", "/labels").replace(".bin", ".label")
+    image_path = point_path.replace("/velodyne", "/image_2").replace(".bin", ".png")
     if osp.exists(label_path):
         label = np.fromfile(label_path, dtype=np.int32)
         sem_label = label & 0xFFFF 
         sem_label = _map(sem_label, labelmap)
         points = np.concatenate([points, sem_label.astype('float32')[:, None]], axis=1)
-    proj, _ = point_cloud_to_xyz_image(points, H, W, is_sorted=True)
+    if osp.exists(image_path):
+        velo_to_camera_rect =calib.T_cam2_velo
+        cam_intrinsic = calib.P_rect_20
+        rgb_image = np.array(Image.open(image_path))
+        rgb = image_to_pcl(rgb_image, points, velo_to_camera_rect, cam_intrinsic)
+        points = np.concatenate([points, rgb.astype('float32')], axis=1)
+    proj, _ = point_cloud_to_xyz_image(points, H, W, is_sorted=is_sorted)
 
 
     save_path = save_dir(point_path).replace(".bin", ".npy")
@@ -77,6 +163,11 @@ def process_point_clouds(point_path, H, W):
         labels = Image.fromarray(np.uint8(proj[..., 4]), mode="P")
         labels.putpalette(palette)
         labels.save(save_path)
+    if osp.exists(image_path):
+        save_path = save_dir(image_path)
+        os.makedirs(osp.dirname(save_path), exist_ok=True)
+        rgb = Image.fromarray(proj[..., 5:8].astype('uint8'))
+        rgb.save(save_path)
 
 
 def process_nucs_point_clouds(point_path, label_path, H, W):
@@ -160,10 +251,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root-dir", type=str, required=True)
     parser.add_argument("--dataset-name", type=str, required=True)
-
     args = parser.parse_args()
-    if args.dataset_name == 'kitti':
-    # 2D maps
+    if args.dataset_name == 'kitti' or args.dataset_name == 'carla':
+        calib = load_calib(osp.join(args.root_dir, "dataset/sequences"))
         H, W =64, 2048
         split_dirs = sorted(glob(osp.join(args.root_dir, "dataset/sequences", "*")))
         for split_dir in tqdm(split_dirs):
@@ -172,7 +262,7 @@ if __name__ == "__main__":
                 n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
             )(
                 [
-                    joblib.delayed(process_point_clouds)(point_path, H, W)
+                    joblib.delayed(process_point_clouds)(point_path, H, W, calib, args.dataset_name == 'kitti')
                     for point_path in point_paths
                 ]
             )
@@ -225,9 +315,9 @@ if __name__ == "__main__":
         num_workers=4,
         drop_last=False,
     )
-    N = len(dataset)
+    # N = len(dataset)
 
-    angles, valid = compute_avg_angles(loader)
-    torch.save(angles, osp.join(args.root_dir, "angles.pt"))
-    torch.save(angles, osp.join(args.root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg'), "angles.pt"))
+    # angles, valid = compute_avg_angles(loader)
+    # torch.save(angles, osp.join(args.root_dir, "angles.pt"))
+    # torch.save(angles, osp.join(args.root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg'), "angles.pt"))
 

@@ -95,7 +95,7 @@ def get_data_loader(cfg, split, batch_size, dataset_name='', shuffle=True, two_d
     ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{cfg_B.name}_cfg.yml', 'r')))
     dataset_B = get_dataset(cfg.dataset.dataset_B.name, cfg_B, ds_cfg_B, cfg_B.data_dir, split)
     dataset = BinaryScan(dataset_A, dataset_B)
-  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4)
+  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4, drop_last=True if split == 'train' else False)
   return loader, dataset
 
 
