@@ -55,7 +55,7 @@ class BinaryScan(Dataset):
     # do the mapping
     return lut[label]
 
-def get_dataset(dataset_name, cfg, ds_cfg, data_dir, split):
+def get_dataset(dataset_name, cfg, ds_cfg, data_dir, split, limited_view=False):
   if dataset_name == 'kitti' or dataset_name == 'carla' or dataset_name == 'synthlidar':
     dataset = KITTIOdometry(
           data_dir,
@@ -67,7 +67,8 @@ def get_dataset(dataset_name, cfg, ds_cfg, data_dir, split):
           is_sorted=ds_cfg.is_sorted,
           is_raw=ds_cfg.is_raw,
           fill_in_label=cfg.fill_in_label,
-          name=dataset_name
+          name=dataset_name,
+          limited_view=limited_view
       )
   elif dataset_name =='nuscene':
     dataset = NuScene(
@@ -88,12 +89,13 @@ def get_data_loader(cfg, split, batch_size, dataset_name='', shuffle=True, two_d
   dataset_name_A = cfg_A.name if dataset_name == '' else dataset_name
   ds_cfg_A = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{dataset_name_A}_cfg.yml', 'r')))
   data_dir = cfg_A.data_dir if dataset_name == '' else ds_cfg_A.data_dir
-  dataset_A = get_dataset(dataset_name_A, cfg_A, ds_cfg_A, data_dir, split)
+  limited_view = 'rgb' in cfg.model.modality_A or 'rgb' in cfg.model.modality_B
+  dataset_A = get_dataset(dataset_name_A, cfg_A, ds_cfg_A, data_dir, split, limited_view)
   dataset = dataset_A
   if hasattr(cfg.dataset, 'dataset_B') and two_dataset_enabled:
     cfg_B = cfg.dataset.dataset_B
     ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{cfg_B.name}_cfg.yml', 'r')))
-    dataset_B = get_dataset(cfg.dataset.dataset_B.name, cfg_B, ds_cfg_B, cfg_B.data_dir, split)
+    dataset_B = get_dataset(cfg.dataset.dataset_B.name, cfg_B, ds_cfg_B, cfg_B.data_dir, split, limited_view)
     dataset = BinaryScan(dataset_A, dataset_B)
   loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4, drop_last=True if split == 'train' else False)
   return loader, dataset

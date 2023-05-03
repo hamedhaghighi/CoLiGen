@@ -87,7 +87,7 @@ def check_exp_exists(opt, cfg_args):
                     + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
         elif 'gc_gan' in opt_m.name:
             opt_t.name = f'gc_gan_modality_A_{modality_A}_out_ch_{out_ch}_lambda_idt_{opt_m.identity}_lambda_AB_{opt_m.lambda_AB}' \
-                + f'_lambda_gc_{opt_m.lambda_gc}_lambda_g_{opt_m.lambda_g}_lambda_G_{opt_m.lambda_G}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
+                + f'_lambda_gc_{opt_m.lambda_gc}_lambda_G_{opt_m.lambda_G}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
                     + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}'
         
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
@@ -117,6 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('--ref_dataset_name', type=str, default='', help='fast test of experiment')
     parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on input_dataset')
+    parser.add_argument('--no_inv', action='store_true', help='inverse depth come from input data')
 
     cl_args = parser.parse_args()
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B)
@@ -151,7 +152,7 @@ if __name__ == '__main__':
     angle_file=os.path.join(opt.dataset.dataset_A.data_dir, "angles.pt"),
     min_depth=ds_cfg.min_depth,
     max_depth=ds_cfg.max_depth,
-    has_rgb = 'rgb' in opt.model.modality_A
+    has_rgb = 'rgb' in opt.model.modality_A or 'rgb' in opt.model.modality_B
     )
     lidar.to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
@@ -236,17 +237,24 @@ if __name__ == '__main__':
             model.set_input(data)
             with torch.no_grad():
                 model.evaluate_model()
-
+            fetched_data = fetch_reals(data['A'], lidar, device)
             if cl_args.on_input:
                 assert is_two_dataset == False
-                fetched_data = fetch_reals(data, lidar, device)
-                synth_inv = fetched_data['inv']
-                synth_reflectance = fetched_data['reflectance']
-                synth_mask = fetched_data['mask']
+                if 'inv' in fetched_data:
+                    synth_inv = fetched_data['inv']
+                if 'reflectance' in fetched_data:
+                    synth_reflectance = fetched_data['reflectance']
+                if 'mask' in fetched_data:
+                    synth_mask = fetched_data['mask']
             else:
-                synth_inv = model.synth_inv 
-                synth_reflectance = model.synth_reflectance 
-                synth_mask = model.synth_mask
+                if hasattr(model, 'synth_reflectance'):
+                    synth_reflectance = model.synth_reflectance 
+                if hasattr(model, 'synth_mask'):
+                    synth_mask = model.synth_mask
+                if hasattr(model, 'synth_inv') and not cl_args.no_inv:
+                    synth_inv = model.synth_inv
+                else:
+                    synth_inv = fetched_data['inv'] * synth_mask
 
             data_dict['synth-2d'].append(synth_inv)
             data_dict['synth-3d'].append(inv_to_xyz(synth_inv, lidar))

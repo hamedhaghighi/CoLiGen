@@ -64,7 +64,7 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, has_rgb=False):
+def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, limited_view=False):
     xyz = points[:, :3]  # xyz
     x = xyz[:, 0]
     y = xyz[:, 1]
@@ -98,7 +98,7 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
         
     # horizontal grid
     yaw = -np.arctan2(y, x)  # [-pi,pi]
-    if has_rgb:
+    if limited_view:
         grid_w = (yaw / (np.pi / 4) + 1) / 2  # [0,1]
     else:
         grid_w = (yaw / np.pi + 1) / 2  # [0,1]

@@ -133,8 +133,11 @@ def load_calib(root):
         return calib
 
 
-def process_point_clouds(point_path, H, W, calib=None, is_sorted=True):
-    save_dir = lambda x: x.replace("dataset/sequences", "projected/sequences")
+def process_point_clouds(point_path, H, W, dest_dir, calib=None, is_sorted=True):
+    def save_dir(x):
+        prev_split = x.split(os.path.sep)
+        seq_mode_filename = os.path.sep.join(prev_split[-4:])
+        return os.path.join(dest_dir, "projected", seq_mode_filename)
     # setup point clouds
     points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 4))
     # for semantic kitti
@@ -250,6 +253,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--root-dir", type=str, required=True)
+    parser.add_argument("--dest-dir", type=str, required=True)
     parser.add_argument("--dataset-name", type=str, required=True)
     args = parser.parse_args()
     if args.dataset_name == 'kitti' or args.dataset_name == 'carla':
@@ -262,7 +266,7 @@ if __name__ == "__main__":
                 n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
             )(
                 [
-                    joblib.delayed(process_point_clouds)(point_path, H, W, calib, args.dataset_name == 'kitti')
+                    joblib.delayed(process_point_clouds)(point_path, H, W, args.dest_dir, calib, args.dataset_name == 'kitti')
                     for point_path in point_paths
                 ]
             )

@@ -50,7 +50,8 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         is_sorted=True,
         is_raw=True,
         fill_in_label=False,
-        name='kitti'):
+        name='kitti', 
+        limited_view=False):
         super().__init__()
         self.root = osp.join(root, "sequences")
         self.split = split
@@ -71,6 +72,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         self.name = name
         self.has_rgb = 'rgb' in modality
         self.has_label = 'label' in modality
+        self.limited_view = limited_view
         if self.has_rgb:
             self.has_rgb = True
             calib = self.load_calib()
@@ -228,6 +230,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                 rgb_path = self.rgb_list[index]
                 rgb = np.array(Image.open(rgb_path))
                 points = np.concatenate([points, rgb.astype('float32')], axis=-1)
+            if self.limited_view:
                 _, W, _ = points.shape
                 points = points[:, int(3*W/8) : int(5*W/8), :]
 
@@ -252,7 +255,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                 W = 512 if self.has_rgb else 2048
             elif self.name == 'synthlidar':
                 W = 1570
-            points, _ = point_cloud_to_xyz_image(point_cloud, H=self.shape[0], W=W, is_sorted=self.is_sorted, has_rgb=self.has_rgb)
+            points, _ = point_cloud_to_xyz_image(point_cloud, H=self.shape[0], W=W, is_sorted=self.is_sorted, limited_view=self.limited_view)
             
         out = {}
         out["points"] = points[..., :3]

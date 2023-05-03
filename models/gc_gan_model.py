@@ -199,7 +199,7 @@ class GcGANModel(BaseModel):
             # G_AB should be identity if real_B is fed.
             _, idt_A = self.netG_AB(self.real_B_mod_A)
             loss_idt = self.criterionIdt(idt_A, self.real_B) * self.opt.model.lambda_AB * self.opt.model.identity
-            idt_gc_A = self.netG_gc_AB(self.real_gc_B)
+            _, idt_gc_A = self.netG_gc_AB(self.real_gc_B)
             loss_idt_gc = self.criterionIdt(idt_gc_A, self.real_gc_B) * self.opt.model.lambda_AB * self.opt.model.identity
 
             self.idt_A = idt_A.data
