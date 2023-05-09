@@ -84,7 +84,6 @@ class GcGANModel(BaseModel):
             setattr(self, 'real_' + k, v)
         for k, v in data_B.items():
             setattr(self, 'real_B_' + k, v)
-        data_list = []
         self.real_A = cat_modality(data_A, self.opt.model.modality_A)
         self.real_B = cat_modality(data_B, self.opt.model.modality_B)
         self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
@@ -134,12 +133,14 @@ class GcGANModel(BaseModel):
         if self.opt.model.geometry == 'rot':
           self.real_gc_A = self.rot90(self.real_A, 0)
           self.real_gc_B = self.rot90(self.real_B, 0)
+          self.real_gc_B_mod_A = self.rot90(self.real_B_mod_A, 0)
         elif self.opt.model.geometry == 'vf':
           inv_idx = torch.arange(size-1, -1, -1).long().cuda()
           self.real_gc_A = torch.index_select(self.real_A, 2, inv_idx)
           self.real_gc_B = torch.index_select(self.real_B, 2, inv_idx)
+          self.real_gc_B_mod_A = torch.index_select(self.real_B_mod_A, 2, inv_idx)
         else:
-          raise ValueError("Geometry transformation function [%s] not recognized." % opt.geometry)
+          raise ValueError("Geometry transformation function [%s] not recognized." % self.opt.geometry)
 
     def get_gc_rot_loss(self, AB, AB_gc, direction):
         loss_gc = 0.0
@@ -199,7 +200,7 @@ class GcGANModel(BaseModel):
             # G_AB should be identity if real_B is fed.
             _, idt_A = self.netG_AB(self.real_B_mod_A)
             loss_idt = self.criterionIdt(idt_A, self.real_B) * self.opt.model.lambda_AB * self.opt.model.identity
-            _, idt_gc_A = self.netG_gc_AB(self.real_gc_B)
+            _, idt_gc_A = self.netG_gc_AB(self.real_gc_B_mod_A)
             loss_idt_gc = self.criterionIdt(idt_gc_A, self.real_gc_B) * self.opt.model.lambda_AB * self.opt.model.identity
 
             self.idt_A = idt_A.data

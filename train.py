@@ -237,7 +237,7 @@ if __name__ == '__main__':
             model.set_input(data)
             with torch.no_grad():
                 model.evaluate_model()
-            fetched_data = fetch_reals(data['A'], lidar, device)
+            fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar, device)
             if cl_args.on_input:
                 assert is_two_dataset == False
                 if 'inv' in fetched_data:

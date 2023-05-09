@@ -16,16 +16,17 @@ from collections import namedtuple
 
 CONFIG = {
     "split": {
-        "train": [0, 1, 2, 3, 4, 5, 6, 7, 9],
+        "train": [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
         "val": [8],
-        "test": [10],
+        "test": [8],
         "synthlidar": [9]
     },
 }
 CONFIG_CARLA = {
     "split": {
         "train": [0, 1, 2, 3, 4, 6, 10],
-        "val": [5]
+        "val": [5],
+        "test": [5]
     },
 }
  
