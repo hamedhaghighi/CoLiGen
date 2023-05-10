@@ -42,10 +42,11 @@ class Pix2Pix2ModalityModel(BaseModel):
         self.visual_names = []
         self.eval_metrics = [] 
         
-        if 'inv' in opt_m.modality_B:
-            self.visual_names.extend(['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask'])
-        if 'reflectance' in opt_m.modality_B:
-            self.visual_names.extend(['real_reflectance', 'synth_reflectance'])
+        for m in opt_m.modality_A:
+            self.visual_names.append('real_' + m)
+        for m in opt_m.modality_B:
+            self.visual_names.append('synth_' + m)
+            self.visual_names.append('real_B_' + m)
 
         input_nc_G = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
         output_nc_G = np.array([m2ch[m] for m in opt_m.out_ch]).sum()
