@@ -147,9 +147,12 @@ class Coordinate(nn.Module):
             return depth
 
     def pol_to_xyz(self, polar):
-        assert polar.dim() == 4
+        assert polar.dim() == 4 # B, C, H, W
         grid_cos = torch.cos(self.angle)
         grid_sin = torch.sin(self.angle)
+        if grid_cos.shape[2] != polar.shape[2]:
+            grid_cos = grid_cos[:, :, :polar.shape[2], :polar.shape[3]]
+            grid_sin = grid_sin[:, :, :polar.shape[2], :polar.shape[3]]
         grid_x = polar * grid_cos[:, [0]] * grid_cos[:, [1]]
         grid_y = polar * grid_cos[:, [0]] * grid_sin[:, [1]]
         grid_z = polar * grid_sin[:, [0]]

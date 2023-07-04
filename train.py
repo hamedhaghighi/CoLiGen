@@ -39,7 +39,7 @@ def inv_to_xyz(inv, lidar, tol=1e-8):
 
 
 class M_parser():
-    def __init__(self, cfg_path, data_dir, data_dir_B):
+    def __init__(self, cfg_path, data_dir, data_dir_B, load):
         opt_dict = yaml.safe_load(open(cfg_path, 'r'))
         dict_class = make_class_from_dict(opt_dict)
         members = [attr for attr in dir(dict_class) if not callable(getattr(dict_class, attr)) and not attr.startswith("__")]
@@ -110,17 +110,17 @@ def check_exp_exists(opt, cfg_args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='Path of the config file')
-    parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
-    parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset')
-    parser.add_argument('--load', type=str, default='', help='if load true the exp name comes from checkpoint path')
+    parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
+    parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
+    parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
-    parser.add_argument('--ref_dataset_name', type=str, default='', help='fast test of experiment')
+    parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
-    parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on input_dataset')
-    parser.add_argument('--no_inv', action='store_true', help='inverse depth come from input data')
+    parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
+    parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
 
     cl_args = parser.parse_args()
-    opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B)
+    opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
     torch.manual_seed(opt.training.seed)
     np.random.seed(opt.training.seed)
     random.seed(opt.training.seed)
@@ -159,6 +159,8 @@ if __name__ == '__main__':
     model.setup(opt.training)               # regular setup: load and print networks; create schedulers
     visualizer = Visualizer(opt.training, lidar, dataset_name=opt.dataset.dataset_A.name)   # create a visualizer that display/save images and plots
     g_steps = 0
+    min_jsd = 10
+    
 
     train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size)
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False)  
@@ -177,7 +179,6 @@ if __name__ == '__main__':
         test_tq.update(1)
     epoch_tq = tqdm.tqdm(total=opt.training.n_epochs, desc='Epoch', position=1)
     start_from_epoch = model.schedulers[0].last_epoch if opt.training.continue_train else 0 
-    min_jsd = 10
         
     #### Train & Validation Loop
     for epoch in range(start_from_epoch, opt.training.n_epochs):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>

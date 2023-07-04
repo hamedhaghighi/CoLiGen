@@ -13,6 +13,7 @@ from util import _map
 from PIL import Image
 from scipy import ndimage as nd
 from collections import namedtuple
+import torchvision.transforms as transforms
 
 CONFIG = {
     "split": {
@@ -52,7 +53,8 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         is_raw=True,
         fill_in_label=False,
         name='kitti', 
-        limited_view=False):
+        limited_view=False,
+        finesize=None):
         super().__init__()
         self.root = osp.join(root, "sequences")
         self.split = split
@@ -74,6 +76,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         self.has_rgb = 'rgb' in modality
         self.has_label = 'label' in modality
         self.limited_view = limited_view
+        self.finesize = finesize
         if self.has_rgb:
             self.has_rgb = True
             calib = self.load_calib()
@@ -197,11 +200,14 @@ class  KITTIOdometry(torch.utils.data.Dataset):
 
     def transform(self, out):
         flip = self.flip and random.random() > 0.5
+        trans =  None if self.finesize is None else transforms.Compose([transforms.RandomCrop(self.finesize)])
         for k, v in out.items():
             v = TF.to_tensor(v)
             if flip:
                 v = TF.hflip(v)
             v = TF.resize(v, self.shape, TF.InterpolationMode.NEAREST)
+            if trans is not None:
+                v = trans(v)
             out[k] = v
         return out
 
