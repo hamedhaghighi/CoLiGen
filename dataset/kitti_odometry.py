@@ -200,14 +200,15 @@ class  KITTIOdometry(torch.utils.data.Dataset):
 
     def transform(self, out):
         flip = self.flip and random.random() > 0.5
-        trans =  None if self.finesize is None else transforms.Compose([transforms.RandomCrop(self.finesize)])
+        if self.finesize is not None:
+            i, j, h, w = transforms.RandomCrop.get_params(torch.zeros(1, self.shape[0], self.shape[1]), output_size=(self.finesize, self.finesize))
         for k, v in out.items():
             v = TF.to_tensor(v)
             if flip:
                 v = TF.hflip(v)
             v = TF.resize(v, self.shape, TF.InterpolationMode.NEAREST)
-            if trans is not None:
-                v = trans(v)
+            if self.finesize is not None:
+                v = TF.crop(v, i, j, h, w)
             out[k] = v
         return out
 
