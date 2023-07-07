@@ -193,7 +193,7 @@ if __name__ == '__main__':
             train_dl_iter = iter(train_dl)
             n_train_batch = 2 if cl_args.fast_test else len(train_dl)
             train_tq = tqdm.tqdm(total=n_train_batch, desc='Iter', position=3)
-            for _ in range(n_train_batch):  # inner loop within one epoch
+            for i in range(n_train_batch):  # inner loop within one epoch
                 data = next(train_dl_iter)
                 # import matplotlib.pyplot as plt
                 # plt.figure(0)
@@ -206,6 +206,8 @@ if __name__ == '__main__':
                 iter_start_time = time.time()  # timer for computation per iteration
                 g_steps += 1
                 e_steps += 1
+                if epoch == start_from_epoch and i == 0:
+                    model.data_dependent_initialize(data)
                 model.set_input(data)         # unpack data from dataset and apply preprocessing
                 model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
