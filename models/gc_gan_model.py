@@ -77,6 +77,9 @@ class GcGANModel(BaseModel):
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D_B)
 
+    def data_dependent_initialize(self, data):
+        return
+
     def set_input(self, input):
         data_A = fetch_reals(input['A'], self.lidar, self.device)
         data_B = fetch_reals(input['B'], self.lidar, self.device)
