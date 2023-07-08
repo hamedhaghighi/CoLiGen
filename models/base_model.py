@@ -199,8 +199,8 @@ class BaseModel(ABC):
         load_filename = f'{epoch}.pth' if (epoch == 'latest' or epoch == 'best') else f'e_{epoch}.pth'
         load_path = os.path.join(self.save_dir, load_filename)
         if not os.path.exists(load_path):
-            print(f'cannot find the load path {load_path}')
-            exit(0)
+            # print(f'cannot find the load path {load_path}')
+            raise Exception(f'cannot find the load path {load_path}')
         else:
             state_dict = torch.load(load_path)
             for name in self.model_names:

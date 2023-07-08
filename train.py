@@ -89,27 +89,31 @@ def check_exp_exists(opt, cfg_args):
             opt_t.name = f'gc_gan_modality_A_{modality_A}_out_ch_{out_ch}_lambda_idt_{opt_m.identity}_lambda_AB_{opt_m.lambda_AB}' \
                 + f'_lambda_gc_{opt_m.lambda_gc}_lambda_G_{opt_m.lambda_G}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
                     + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}_finesize_{opt_d.img_prop.finesize}'
+        elif 'cut' in opt_m.name:
+            opt_t.name = f'cut_modality_A_{modality_A}_out_ch_{out_ch}_nce_idt_{opt_m.nce_idt}_lambda_GAN_{opt_m.lambda_GAN}' \
+                + f'_lambda_NCE_{opt_m.lambda_NCE}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
+                    + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_netF_{opt_m.netF}_batch_size_{opt_t.batch_size}_finesize_{opt_d.img_prop.finesize}'
         
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
     if not opt_t.continue_train and opt_t.isTrain:
         if os.path.exists(exp_dir):
             reply = ''
-            
-            while not reply.startswith('y') and not reply.startswith('n'):
-                reply = str(input(f'exp_dir {exp_dir} exists. Do you want to delete it? (y/n): \n')).lower().strip()
-            if reply.startswith('y'):
-                shutil.rmtree(exp_dir)
-            else:
-                print('Please Re-run the program with \"continue train\" enabled')
-                exit(0)
+            raise Exception('Checkpoint exists!!')
+            # while not reply.startswith('y') and not reply.startswith('n'):
+            #     reply = str(input(f'exp_dir {exp_dir} exists. Do you want to delete it? (y/n): \n')).lower().strip()
+            # if reply.startswith('y'):
+            #     shutil.rmtree(exp_dir)
+            # else:
+            #     print('Please Re-run the program with \"continue train\" enabled')
+            #     exit(0)
         os.makedirs(exp_dir, exist_ok=True)
         shutil.copy(cfg_path, exp_dir)
     else:
         assert os.path.exists(exp_dir)
 
-if __name__ == '__main__':
+def main(runner_cfg_path=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, help='Path of the config file')
+    parser.add_argument('--cfg', type=str, default='', help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
@@ -118,8 +122,9 @@ if __name__ == '__main__':
     parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
     parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
-
     cl_args = parser.parse_args()
+    if runner_cfg_path is not None:
+        cl_args.cfg = runner_cfg_path
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
     torch.manual_seed(opt.training.seed)
     np.random.seed(opt.training.seed)
@@ -307,3 +312,9 @@ if __name__ == '__main__':
         epoch_tq.update(1)
 
         print('End of epoch %d \t Time Taken: %d sec' % (epoch, time.time() - epoch_start_time))
+
+
+if __name__ == '__main__':
+    main()
+    
+ 
