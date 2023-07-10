@@ -51,7 +51,7 @@ class CUTModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt_m.gan_mode).to(self.device)
             self.criterionNCE = []
             for nce_layer in self.nce_layers:
-                self.criterionNCE.append(PatchNCELoss(opt_m).to(self.device))
+                self.criterionNCE.append(PatchNCELoss(opt_m, opt_t.batch_size).to(self.device))
             self.criterionIdt = torch.nn.L1Loss().to(self.device)
             self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, opt_t.beta2))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, opt_t.beta2))
@@ -88,11 +88,12 @@ class CUTModel(BaseModel):
             setattr(self, 'real_B_' + k, v)
         self.real_A = cat_modality(data_A, self.opt.model.modality_A)
         self.real_B = cat_modality(data_B, self.opt.model.modality_B)
-
+        self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
+        self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
 
 
     def forward(self):
-        self.real = torch.cat((self.real_A, self.real_B), dim=0) if self.opt.model.nce_idt and self.isTrain else self.real_A
+        self.real = torch.cat((self.real_A, self.real_B_mod_A), dim=0) if self.opt.model.nce_idt and self.isTrain else self.real_A
         if self.opt.model.flip_equivariance:
             self.flipped_for_equivariance = self.isTrain and (np.random.random() < 0.5)
             if self.flipped_for_equivariance:
@@ -134,7 +135,7 @@ class CUTModel(BaseModel):
             self.loss_NCE, self.loss_NCE_bd = 0.0, 0.0
 
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE > 0.0:
-            self.loss_NCE_Y = self.calculate_NCE_loss(self.real_B, self.idt_B)
+            self.loss_NCE_Y = self.calculate_NCE_loss(self.real_B_mod_A, self.idt_B)
             loss_NCE_both = (self.loss_NCE + self.loss_NCE_Y) * 0.5
         else:
             loss_NCE_both = self.loss_NCE
@@ -167,6 +168,16 @@ class CUTModel(BaseModel):
 
     def calculate_NCE_loss(self, src, tgt):
         n_layers = len(self.nce_layers)
+        if len(self.opt.model.modality_A) > len(self.opt.model.modality_B):
+            diff_ch = 0
+            for m in set(self.opt.model.modality_A).difference(self.opt.model.modality_B):
+                diff_ch += m2ch[m]
+            B, C, H ,W = tgt.shape
+            extra_ch = torch.zeros(B, diff_ch, H, W).to(src)
+            # if src.shape[1] > tgt.shape[1]:
+            src[:, 0:diff_ch] = extra_ch  
+            tgt = torch.cat([extra_ch, tgt], dim=1)
+
         feat_q = self.netG(tgt, self.nce_layers, encode_only=True)
 
         if self.opt.model.flip_equivariance and self.flipped_for_equivariance:

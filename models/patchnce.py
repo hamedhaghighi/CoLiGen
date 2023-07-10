@@ -4,11 +4,12 @@ from torch import nn
 
 
 class PatchNCELoss(nn.Module):
-    def __init__(self, opt):
+    def __init__(self, opt, batch_size):
         super().__init__()
         self.opt = opt
         self.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='none')
         self.mask_dtype = torch.uint8 if version.parse(torch.__version__) < version.parse('1.2.0') else torch.bool
+        self.batch_size = batch_size
 
     def forward(self, feat_q, feat_k):
         num_patches = feat_q.shape[0]
@@ -33,7 +34,7 @@ class PatchNCELoss(nn.Module):
             # reshape features as if they are all negatives of minibatch of size 1.
             batch_dim_for_bmm = 1
         else:
-            batch_dim_for_bmm = self.opt.batch_size
+            batch_dim_for_bmm = self.batch_size
 
         # reshape features to batch size
         feat_q = feat_q.view(batch_dim_for_bmm, -1, dim)
