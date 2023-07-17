@@ -62,6 +62,27 @@ labels_mapping = {
     28: 15,
     30: 16
 }
+
+
+def prepare_data_for_seg(data, lidar, is_batch=True):
+    depth = data['depth'] * (lidar.max_depth - lidar.min_depth) + lidar.min_depth
+    points = data['points'] * lidar.max_depth
+    vol = torch.cat([depth, points, data['reflectance'], data['mask']], dim=1 if is_batch else 0)
+    return vol
+ 
+def prepare_synth_for_seg(model, lidar):
+    if hasattr(model, 'synth_reflectance'):
+        synth_reflectance = model.synth_reflectance 
+    if hasattr(model, 'synth_mask'):
+        synth_mask = model.synth_mask
+    if hasattr(model, 'synth_inv'):
+        synth_inv = model.synth_inv
+    synth_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
+    synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
+    synth_reflectance = tanh_to_sigmoid(synth_reflectance)
+    vol = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
+    return vol
+ 
 def cat_modality(data_dict, modality):
     data_list = []
     for m in modality:

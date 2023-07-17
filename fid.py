@@ -2,7 +2,6 @@
 # This file is covered by the LICENSE file in the root of this project.
 
 import torch
-import yaml
 import os
 import numpy as np
 from rangenet.tasks.semantic.modules.segmentator import *
@@ -11,33 +10,26 @@ import random
 from scipy import linalg
 import pickle
 from tqdm import trange, tqdm
-from util import _map
+from util import _map, prepare_data_for_seg
 
 class FID():
   def __init__(self, train_dataset, dataset_name, lidar, max_sample=1000, batch_size=8):
-
-    self.ARCH = yaml.safe_load(open('configs/arch_cfg.yaml', 'r'))
-    self.DATA = yaml.safe_load(open('configs/data_cfg.yaml', 'r'))
     self.path = './'
-    self.sensor_img_means = torch.tensor(self.ARCH["dataset"]["sensor"]["img_means"], dtype=torch.float)
-    self.sensor_img_stds = torch.tensor(self.ARCH["dataset"]["sensor"]["img_stds"], dtype=torch.float)
     self.batch_size = batch_size
     ds = train_dataset
     n_samples = min(max_sample, len(train_dataset))
     stat_dir = os.path.join('fid_stats', f'fid_{dataset_name}.pkl')
     # parameters
-    self.modeldir = os.path.join('rangenet', 'rangenet_weights')
-    self.n_classes = len(self.DATA["learning_map_inv"])
     self.lidar = lidar 
     # concatenate the encoder and the head
     with torch.no_grad():
-      self.model = Segmentator(self.ARCH, self.n_classes, self.modeldir)
+      self.model = Segmentator()
 
     # use knn post processing?
-    self.post = None
-    if self.ARCH["post"]["KNN"]["use"]:
-      self.post = KNN(self.ARCH["post"]["KNN"]["params"],
-                       self.n_classes)
+    # self.post = None
+    # if self.ARCH["post"]["KNN"]["use"]:
+    #   self.post = KNN(self.ARCH["post"]["KNN"]["params"],
+    #                    self.n_classes)
 
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     self.model.to(self.device)
@@ -51,9 +43,7 @@ class FID():
         samples = []
         for ind in tqdm(sample_indxs, desc='gathering real samples for fid'):
             data = ds[ind]
-            depth = data['depth'] * (lidar.max_depth - lidar.min_depth) + lidar.min_depth
-            points = data['points'] * lidar.max_depth
-            vol = torch.cat([depth, points, data['reflectance'], data['mask']], dim=0)
+            vol = prepare_data_for_seg(data, lidar, is_batch=False)
             vol = vol.to(self.device)
             samples.append(vol)
         samples = torch.stack(samples, dim=0)
@@ -80,11 +70,7 @@ class FID():
     features_list = []
     for i in trange(int(n_batch), desc='extracting features for fid'):
       data = data_tensor[i * self.batch_size: (i + 1) * self.batch_size]
-      in_vol = data[:, :5]
-      proj_mask = data[:, [5]]
-      in_vol = (in_vol - self.sensor_img_means[None, :, None, None].to(self.device) ) / self.sensor_img_stds[None, :, None, None].to(self.device)
-      in_vol = in_vol * proj_mask
-      _, feature = self.model(in_vol, proj_mask)
+      _, feature = self.model(data)
       # a = out[0].argmax(dim=0).detach().cpu().numpy();import matplotlib.pyplot as plt
       # plt.imshow(_map(_map(a, self.DATA['learning_map_inv']), self.DATA['color_map'])[..., ::-1]);plt.show()
       features_list.append(feature.detach().cpu().numpy())
