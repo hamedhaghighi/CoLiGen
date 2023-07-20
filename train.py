@@ -160,7 +160,6 @@ def main(runner_cfg_path=None):
     has_rgb = 'rgb' in opt.model.modality_A or 'rgb' in opt.model.modality_B
     )
     lidar.to(device)
-    model = create_model(opt, lidar)      # create a model given opt.model and other options
     visualizer = Visualizer(opt.training, lidar, dataset_name=opt.dataset.dataset_A.name)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_jsd = 10
@@ -169,6 +168,11 @@ def main(runner_cfg_path=None):
     train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size)
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False)  
     test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
+    model = create_model(opt, lidar)      # create a model given opt.model and other options
+    ## initilisation of the model for netF in cut
+    train_dl_iter = iter(train_dl); data = next(train_dl_iter); model.data_dependent_initialize(data)
+    model.setup(opt.training)               # regular setup: load and print networks; create schedulers
+
     fid_cls = FID(train_dataset, cl_args.ref_dataset_name, lidar) if cl_args.ref_dataset_name!= '' else None
     n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
     test_dl_iter = iter(test_dl)
@@ -191,6 +195,7 @@ def main(runner_cfg_path=None):
         e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
         # Train loop
         if opt.training.isTrain:
+            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
             visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
             model.train(True)
             train_dl_iter = iter(train_dl)
@@ -209,9 +214,8 @@ def main(runner_cfg_path=None):
                 iter_start_time = time.time()  # timer for computation per iteration
                 g_steps += 1
                 e_steps += 1
-                if epoch == start_from_epoch and i == 0:
-                    model.data_dependent_initialize(data)
-                    model.setup(opt.training)               # regular setup: load and print networks; create schedulers
+                # if epoch == start_from_epoch and i == 0:
+                #     model.data_dependent_initialize(data)
                 model.set_input(data)         # unpack data from dataset and apply preprocessing
                 model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
@@ -227,9 +231,6 @@ def main(runner_cfg_path=None):
                     train_tq.write('saving the latest model (epoch %d, total_iters %d)' % (epoch, g_steps))
                     model.save_networks('latest')
                 train_tq.update(1)
-        else:
-            model.data_dependent_initialize(data)
-            model.setup(opt.training)
         val_dl_iter = iter(val_dl)
         n_val_batch = 2 if cl_args.fast_test else  len(val_dl)
         ##### validation
@@ -276,7 +277,6 @@ def main(runner_cfg_path=None):
                 fid_samples.append(synth_data)
 
 
-
             if i == dis_batch_ind:
                 vis_dict = model.get_current_visuals()
                 visualizer.display_current_results(tag, vis_dict, g_steps, ds_cfg)
@@ -311,8 +311,6 @@ def main(runner_cfg_path=None):
         visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
 
         epoch_tq.update(1)
-        if opt.training.isTrain:
-            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
         print('End of epoch %d \t Time Taken: %d sec' % (epoch, time.time() - epoch_start_time))
 
 
