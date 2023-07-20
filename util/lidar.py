@@ -150,7 +150,7 @@ class Coordinate(nn.Module):
         assert polar.dim() == 4 # B, C, H, W
         grid_cos = torch.cos(self.angle)
         grid_sin = torch.sin(self.angle)
-        if grid_cos.shape[2] != polar.shape[2]:
+        if grid_cos.shape[2] != polar.shape[2] or grid_cos.shape[3] != polar.shape[3]:
             grid_cos = grid_cos[:, :, :polar.shape[2], :polar.shape[3]]
             grid_sin = grid_sin[:, :, :polar.shape[2], :polar.shape[3]]
         grid_x = polar * grid_cos[:, [0]] * grid_cos[:, [1]]

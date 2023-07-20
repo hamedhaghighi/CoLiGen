@@ -161,7 +161,6 @@ def main(runner_cfg_path=None):
     )
     lidar.to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
-    model.setup(opt.training)               # regular setup: load and print networks; create schedulers
     visualizer = Visualizer(opt.training, lidar, dataset_name=opt.dataset.dataset_A.name)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_jsd = 10
@@ -193,7 +192,6 @@ def main(runner_cfg_path=None):
         # Train loop
         if opt.training.isTrain:
             visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
-            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
             model.train(True)
             train_dl_iter = iter(train_dl)
             n_train_batch = 2 if cl_args.fast_test else len(train_dl)
@@ -213,6 +211,7 @@ def main(runner_cfg_path=None):
                 e_steps += 1
                 if epoch == start_from_epoch and i == 0:
                     model.data_dependent_initialize(data)
+                    model.setup(opt.training)               # regular setup: load and print networks; create schedulers
                 model.set_input(data)         # unpack data from dataset and apply preprocessing
                 model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
@@ -228,7 +227,9 @@ def main(runner_cfg_path=None):
                     train_tq.write('saving the latest model (epoch %d, total_iters %d)' % (epoch, g_steps))
                     model.save_networks('latest')
                 train_tq.update(1)
-                
+        else:
+            model.data_dependent_initialize(data)
+            model.setup(opt.training)
         val_dl_iter = iter(val_dl)
         n_val_batch = 2 if cl_args.fast_test else  len(val_dl)
         ##### validation
@@ -310,7 +311,8 @@ def main(runner_cfg_path=None):
         visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
 
         epoch_tq.update(1)
-
+        if opt.training.isTrain:
+            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
         print('End of epoch %d \t Time Taken: %d sec' % (epoch, time.time() - epoch_start_time))
 
 
