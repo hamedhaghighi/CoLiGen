@@ -70,13 +70,13 @@ def prepare_data_for_seg(data, lidar, is_batch=True):
     vol = torch.cat([depth, points, data['reflectance'], data['mask']], dim=1 if is_batch else 0)
     return vol
  
-def prepare_synth_for_seg(model, lidar):
-    if hasattr(model, 'synth_reflectance'):
-        synth_reflectance = model.synth_reflectance 
-    if hasattr(model, 'synth_mask'):
-        synth_mask = model.synth_mask
-    if hasattr(model, 'synth_inv'):
-        synth_inv = model.synth_inv
+def prepare_synth_for_seg(model, lidar, tag='synth'):
+    if hasattr(model, tag + '_reflectance'):
+        synth_reflectance = getattr(model, tag + '_reflectance')
+    if hasattr(model, tag + '_mask'):
+        synth_mask = getattr(model, tag + '_mask')
+    if hasattr(model, tag + '_inv'):
+        synth_inv = getattr(model, tag + '_inv')
     synth_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
     synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
     synth_reflectance = tanh_to_sigmoid(synth_reflectance)

@@ -22,15 +22,20 @@ class CUTModel(BaseModel):
         opt_t = opt.training
         self.lidar = lidar
         if self.isTrain:
-            self.model_names = ['G', 'F', 'D']
+            self.model_names = ['G', 'F', 'D', 'F_feat']
         else:
             self.model_names = ['G']
         
         self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G', 'NCE']
         self.nce_layers = [int(i) for i in opt_m.nce_layers.split(',')]
-        if self.opt.model.nce_idt and self.isTrain:
-            self.loss_names.extend(['NCE_Y'])
-            
+        if self.opt.model.nce_idt and self.opt.model.lambda_NCE and self.isTrain:
+            self.loss_names.extend(['NCE_Y_pix'])
+        if self.opt.model.nce_idt and self.opt.model.lambda_NCE_feat and self.isTrain:
+            self.loss_names.extend(['NCE_Y_feat'])
+        if self.opt.model.lambda_NCE and self.isTrain:
+            self.loss_names.extend(['NCE_pix'])
+        if self.opt.model.lambda_NCE_feat and self.isTrain:
+            self.loss_names.extend(['NCE_feat'])
         self.visual_names = []
         for m in opt_m.modality_A:
             self.visual_names.append('real_' + m)
@@ -45,7 +50,8 @@ class CUTModel(BaseModel):
         same_kernel_size = opt.dataset.dataset_A.img_prop.width == opt.dataset.dataset_A.img_prop.height
         self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch, opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m)
         self.netF = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m)
-        if opt_m.lambda_NCE_seg > 0.0:
+        self.netF_feat = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m)
+        if opt_m.lambda_NCE_feat > 0.0:
             with torch.no_grad():
                 self.seg_model = Segmentator().to(self.device)
 
@@ -80,9 +86,12 @@ class CUTModel(BaseModel):
         if self.isTrain:
             self.backward_D()                 # calculate gradients for D
             self.backward_G()                 # calculate graidents for G
-            if self.opt.model.lambda_NCE > 0.0 or self.opt.model.lambda_NCE_seg > 0.0:
+            if self.opt.model.lambda_NCE > 0.0:
                 self.optimizer_F = torch.optim.Adam(self.netF.parameters(), lr=self.opt.training.lr, betas=(self.opt.training.beta1, self.opt.training.beta2))
                 self.optimizers.append(self.optimizer_F)
+            if self.opt.model.lambda_NCE_feat > 0.0:
+                self.optimizer_F_feat = torch.optim.Adam(self.netF_feat.parameters(), lr=self.opt.training.lr, betas=(self.opt.training.beta1, self.opt.training.beta2))
+                self.optimizers.append(self.optimizer_F_feat)
 
     def set_input(self, input):
         data_A = fetch_reals(input['A'], self.lidar, self.device)
@@ -96,6 +105,7 @@ class CUTModel(BaseModel):
         self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
         self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
         self.data_A = data_A
+        self.data_B = data_B
 
 
     def forward(self):
@@ -110,6 +120,8 @@ class CUTModel(BaseModel):
             self.idt_B = self.fake[self.real_A.size(0):]
         for k , v in out_dict.items():
             setattr(self, 'synth_' + k , v[:self.real_A.size(0)])
+        for k , v in out_dict.items():
+            setattr(self, 'synth_idt_B_' + k , v[self.real_A.size(0):])
 
     def backward_D(self):
         fake = self.fake_B.detach()
@@ -135,23 +147,30 @@ class CUTModel(BaseModel):
         else:
             self.loss_G_GAN = 0.0
 
+        self.loss_NCE_pix, self.loss_NCE_feat, self.loss_NCE_bd = 0.0, 0.0, 0.0
+
         if self.opt.model.lambda_NCE > 0.0:
-            self.loss_NCE = self.calculate_NCE_loss(self.real_A, self.fake_B)
-        elif self.opt.model.lambda_NCE_seg > 0.0:
+            self.loss_NCE_pix = self.calculate_NCE_loss(self.real_A, self.fake_B)
+        if self.opt.model.lambda_NCE_feat > 0.0:
             src_vol = prepare_data_for_seg(self.data_A, self.lidar)
             tgt_vol = prepare_synth_for_seg(self, self.lidar)
-            self.loss_NCE = self.calculate_NCE_seg_loss(src_vol, tgt_vol)
-        else:
-            self.loss_NCE, self.loss_NCE_bd = 0.0, 0.0
+            self.loss_NCE_feat = self.calculate_NCE_feat_loss(src_vol, tgt_vol)
+            
+
+        self.loss_NCE = (self.loss_NCE_pix + self.loss_NCE_feat) * 0.5
+
+        loss_NCE_both, loss_NCE_both_pix, loss_NCE_both_feat = self.loss_NCE, self.loss_NCE, self.loss_NCE
 
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE > 0.0:
-            self.loss_NCE_Y = self.calculate_NCE_loss(self.real_B_mod_A, self.idt_B)
-            loss_NCE_both = (self.loss_NCE + self.loss_NCE_Y) * 0.5
-        elif self.opt.model.nce_idt and self.opt.model.lambda_NCE_seg > 0.0:
-            loss_NCE_both = self.loss_NCE
-        else:
-            loss_NCE_both = self.loss_NCE
+            self.loss_NCE_Y_pix = self.calculate_NCE_loss(self.real_B_mod_A, self.idt_B)
+            loss_NCE_both_pix = (self.loss_NCE + self.loss_NCE_Y_pix) * 0.5
+        if self.opt.model.nce_idt and self.opt.model.lambda_NCE_feat > 0.0:
+            src_vol = prepare_data_for_seg(self.data_B, self.lidar)
+            tgt_vol = prepare_synth_for_seg(self, self.lidar, 'synth_idt_B')
+            self.loss_NCE_Y_feat = self.calculate_NCE_feat_loss(src_vol, tgt_vol)
+            loss_NCE_both_feat = (self.loss_NCE + self.loss_NCE_Y_feat) * 0.5
 
+        loss_NCE_both = (loss_NCE_both_pix + loss_NCE_both_feat) * 0.5
         self.loss_G = self.loss_G_GAN + loss_NCE_both
 
 
@@ -174,10 +193,12 @@ class CUTModel(BaseModel):
         self.optimizer_G.zero_grad()
         if self.opt.model.netF == 'mlp_sample':
             self.optimizer_F.zero_grad()
+            self.optimizer_F_feat.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
         if self.opt.model.netF == 'mlp_sample':
             self.optimizer_F.step()
+            self.optimizer_F_feat.step()
 
     def calculate_NCE_loss(self, src, tgt):
         n_layers = len(self.nce_layers)
@@ -208,15 +229,15 @@ class CUTModel(BaseModel):
         return total_nce_loss / n_layers
 
 
-    def calculate_NCE_seg_loss(self, src_vol, tgt_vol):
+    def calculate_NCE_feat_loss(self, src_vol, tgt_vol):
         _, feat_q = self.seg_model(tgt_vol)
         _, feat_k = self.seg_model(src_vol)
         feat_q = [feat_q]
         feat_k = [feat_k]
-        feat_k_pool, sample_ids = self.netF(feat_k, self.opt.model.num_patches, None)
-        feat_q_pool, _ = self.netF(feat_q, self.opt.model.num_patches, sample_ids)
+        feat_k_pool, sample_ids = self.netF_feat(feat_k, self.opt.model.num_patches, None)
+        feat_q_pool, _ = self.netF_feat(feat_q, self.opt.model.num_patches, sample_ids)
         total_nce_loss = 0.0
         for f_q, f_k, crit, _ in zip(feat_q_pool, feat_k_pool, self.criterionNCE, self.nce_layers):
-            loss = crit(f_q, f_k) * self.opt.model.lambda_NCE_seg
+            loss = crit(f_q, f_k) * self.opt.model.lambda_NCE_feat
             total_nce_loss += loss.mean()
         return total_nce_loss / len(self.nce_layers)
