@@ -26,7 +26,7 @@ class CUTModel(BaseModel):
         else:
             self.model_names = ['G']
         
-        self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G', 'NCE']
+        self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G']
         self.nce_layers = [int(i) for i in opt_m.nce_layers.split(',')]
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE and self.isTrain:
             self.loss_names.extend(['NCE_Y_pix'])
@@ -156,29 +156,23 @@ class CUTModel(BaseModel):
             tgt_vol = prepare_synth_for_seg(self, self.lidar)
             self.loss_NCE_feat = self.calculate_NCE_feat_loss(src_vol, tgt_vol)
             
-
-        self.loss_NCE = (self.loss_NCE_pix + self.loss_NCE_feat) * 0.5
-
-        loss_NCE_both, loss_NCE_both_pix, loss_NCE_both_feat = self.loss_NCE, self.loss_NCE, self.loss_NCE
+        loss_NCE_both_pix, loss_NCE_both_feat = self.loss_NCE_pix, self.loss_NCE_feat
 
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE > 0.0:
             self.loss_NCE_Y_pix = self.calculate_NCE_loss(self.real_B_mod_A, self.idt_B)
-            loss_NCE_both_pix = (self.loss_NCE + self.loss_NCE_Y_pix) * 0.5
+            loss_NCE_both_pix = (loss_NCE_both_pix + self.loss_NCE_Y_pix) * 0.5
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE_feat > 0.0:
             src_vol = prepare_data_for_seg(self.data_B, self.lidar)
             tgt_vol = prepare_synth_for_seg(self, self.lidar, 'synth_idt_B')
             self.loss_NCE_Y_feat = self.calculate_NCE_feat_loss(src_vol, tgt_vol)
-            loss_NCE_both_feat = (self.loss_NCE + self.loss_NCE_Y_feat) * 0.5
+            loss_NCE_both_feat = (loss_NCE_both_feat + self.loss_NCE_Y_feat) * 0.5
 
-        loss_NCE_both = (loss_NCE_both_pix + loss_NCE_both_feat) * 0.5
+        loss_NCE_both = (loss_NCE_both_pix + loss_NCE_both_feat)
         self.loss_G = self.loss_G_GAN + loss_NCE_both
 
 
         self.loss_G.backward()
 
-
-    def evaluate_model(self):
-        self.forward()
 
     def optimize_parameters(self):
         # forward
@@ -193,11 +187,13 @@ class CUTModel(BaseModel):
         self.optimizer_G.zero_grad()
         if self.opt.model.netF == 'mlp_sample':
             self.optimizer_F.zero_grad()
+        if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
         if self.opt.model.netF == 'mlp_sample':
             self.optimizer_F.step()
+        if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.step()
 
     def calculate_NCE_loss(self, src, tgt):

@@ -246,7 +246,7 @@ def main(runner_cfg_path=None):
             data = next(val_dl_iter)
             model.set_input(data)
             with torch.no_grad():
-                model.evaluate_model()
+                model.calc_supervised_metrics()
             fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar, device)
             if cl_args.on_input:
                 assert is_two_dataset == False

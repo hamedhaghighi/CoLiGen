@@ -86,8 +86,6 @@ class Pix2Pix2ModalityModel(BaseModel):
         self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
         self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
         
-    def evaluate_model(self):
-        self.forward()
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""

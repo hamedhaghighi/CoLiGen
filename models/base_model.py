@@ -3,7 +3,10 @@ import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 from . import networks
-
+from util.metrics.cov_mmd_1nna import compute_cd
+from util.metrics.depth import compute_depth_accuracy, compute_depth_error
+from util.util import SSIM
+from util import *
 
 class BaseModel(ABC):
     """This class is an abstract base class (ABC) for models.
@@ -36,13 +39,14 @@ class BaseModel(ABC):
         self.save_dir = os.path.join(opt.training.checkpoints_dir, opt.training.name)  # save all the checkpoints to save_dir
         # if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
         #     torch.backends.cudnn.benchmark = True
-        self.eval_metrics = []
+        self.eval_metrics = ['cd', 'depth_errors', 'depth_accuracies']
         self.loss_names = []
         self.extra_val_loss_names = []
         self.model_names = []
         self.visual_names = []
         self.optimizers = []
         self.image_paths = []
+        self.crterionSSIM = SSIM()
         self.metric = 0  # used for learning rate policy 'plateau'
 
     @staticmethod
@@ -80,7 +84,26 @@ class BaseModel(ABC):
     @abstractmethod
     def data_dependent_initialize(self):
         pass
+    def calc_supervised_metrics(self):
+        self.forward()
+        points_gen = self.lidar.inv_to_xyz(tanh_to_sigmoid(self.synth_inv))
+        points_gen = flatten(points_gen)
+        points_ref = flatten(self.real_points)
+        depth_ref = self.lidar.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
+        depth_gen = self.lidar.revert_depth(tanh_to_sigmoid(self.synth_inv), norm=False)
+        self.cd = compute_cd(points_ref, points_gen).mean().item()
+        accuracies = compute_depth_accuracy(depth_ref, depth_gen)
+        self.depth_accuracies = {'depth/' + k: v.mean().item() for k ,v in accuracies.items()}
+        errors = compute_depth_error(depth_ref, depth_gen)
+        self.depth_errors = {'depth/' + k: v.mean().item() for k ,v in errors.items()}
+        if 'reflectance' in self.opt.model.modality_B:
+            reflectance_ref = tanh_to_sigmoid(self.real_reflectance) + 1e-8
+            reflectance_gen = tanh_to_sigmoid(self.synth_reflectance) + 1e-8
+            errors = compute_depth_error(reflectance_ref, reflectance_gen)
+            self.reflectance_errors = {'reflectance/' + k: v.mean().item() for k ,v in errors.items()}
+            self.reflectance_ssim = self.crterionSSIM(self.real_reflectance, self.synth_reflectance, torch.ones_like(self.real_reflectance))
 
+        # combine loss and calculate gradients
     def setup(self, opt):
         """Load and print networks; create schedulers
 

@@ -138,8 +138,6 @@ class CycleGANModel(BaseModel):
 
         self.loss_G.backward()
 
-    def evaluate_model(self):
-        self.forward()
 
     def optimize_parameters(self):
         # forward

@@ -227,8 +227,6 @@ class GcGANModel(BaseModel):
         self.loss_G_gc_AB= loss_G_gc_AB.item()
         self.loss_gc = loss_gc.item()
 
-    def evaluate_model(self):
-        self.forward()
 
     def optimize_parameters(self):
         # forward

@@ -2,11 +2,8 @@ import torch
 import numpy as np
 from .base_model import BaseModel
 from . import networks
-from util import flatten, postprocess
-from util.util import SSIM
 from util import *
-from util.metrics.cov_mmd_1nna import compute_cd
-from util.metrics.depth import compute_depth_accuracy, compute_depth_error
+
 
 class Pix2PixModel(BaseModel):
     """ This class implements the pix2pix model, for learning a mapping from input images to output images given paired data.
@@ -60,7 +57,6 @@ class Pix2PixModel(BaseModel):
         # define loss functions
         self.criterionGAN = networks.GANLoss(opt_m.gan_mode).to(self.device)
         self.criterionL1 = torch.nn.L1Loss()
-        self.crterionSSIM = SSIM()
         self.BCEwithLogit = torch.nn.BCEWithLogitsLoss()
         # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
         self.lidar = lidar
@@ -89,28 +85,6 @@ class Pix2PixModel(BaseModel):
             data_list.append(data[m])
         self.real_B = torch.cat(data_list, dim=1)
         
-    def evaluate_model(self):
-        self.forward()
-        points_gen = self.lidar.inv_to_xyz(tanh_to_sigmoid(self.synth_inv))
-        points_gen = flatten(points_gen)
-        points_ref = flatten(self.real_points)
-        depth_ref = self.lidar.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
-        depth_gen = self.lidar.revert_depth(tanh_to_sigmoid(self.synth_inv), norm=False)
-        if 'cd' in self.eval_metrics:
-            self.cd = compute_cd(points_ref, points_gen).mean().item()
-        if 'depth_accuracies' in self.eval_metrics:
-            accuracies = compute_depth_accuracy(depth_ref, depth_gen)
-            self.depth_accuracies = {'depth/' + k: v.mean().item() for k ,v in accuracies.items()}
-        if 'depth_errors' in self.eval_metrics:
-            errors = compute_depth_error(depth_ref, depth_gen)
-            self.depth_errors = {'depth/' + k: v.mean().item() for k ,v in errors.items()}
-        if 'reflectance_errors' in self.eval_metrics and 'reflectance' in self.opt_m.modality_B:
-            reflectance_ref = tanh_to_sigmoid(self.real_reflectance) + 1e-8
-            reflectance_gen = tanh_to_sigmoid(self.synth_reflectance) + 1e-8
-            errors = compute_depth_error(reflectance_ref, reflectance_gen)
-            self.reflectance_errors = {'reflectance/' + k: v.mean().item() for k ,v in errors.items()}
-            # self.loss_ssim = self.crterionSSIM(self.real_B, self.fake_B, torch.ones_like(self.real_mask))
-        # combine loss and calculate gradients
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
