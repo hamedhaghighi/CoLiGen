@@ -120,8 +120,9 @@ class CUTModel(BaseModel):
             self.idt_B = self.fake[self.real_A.size(0):]
         for k , v in out_dict.items():
             setattr(self, 'synth_' + k , v[:self.real_A.size(0)])
-        for k , v in out_dict.items():
-            setattr(self, 'synth_idt_B_' + k , v[self.real_A.size(0):])
+        if self.opt.model.nce_idt:
+            for k , v in out_dict.items():
+                setattr(self, 'synth_idt_B_' + k , v[self.real_A.size(0):])
 
     def backward_D(self):
         fake = self.fake_B.detach()

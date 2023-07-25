@@ -11,15 +11,14 @@ import yaml
 import os
 
 class Segmentator(nn.Module):
-  def __init__(self, path=None, path_append="", strict=False):
+  def __init__(self, path_append="", strict=False):
     super().__init__()
+    path = os.path.join('rangenet', 'rangenet_weights')
     self.ARCH = yaml.safe_load(open('configs/arch_cfg.yaml', 'r'))
     self.DATA = yaml.safe_load(open('configs/data_cfg.yaml', 'r'))
     self.sensor_img_means = torch.tensor(self.ARCH["dataset"]["sensor"]["img_means"], dtype=torch.float)
     self.sensor_img_stds = torch.tensor(self.ARCH["dataset"]["sensor"]["img_stds"], dtype=torch.float)
     self.nclasses = len(self.DATA["learning_map_inv"])
-    self.path = os.path.join('rangenet', 'rangenet_weights')
-    self.path_append = path_append
     self.strict = False
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # get the model
@@ -149,7 +148,8 @@ class Segmentator(nn.Module):
     else:
       print("No path to pretrained, using random init.")
 
-  def forward(self, x, mask=None):
+  def forward(self, x):
+
     in_vol = x[:, :5]
     proj_mask = x[:, [5]]
     in_vol = (in_vol - self.sensor_img_means[None, :, None, None].to(self.device) ) / self.sensor_img_stds[None, :, None, None].to(self.device)
@@ -159,8 +159,8 @@ class Segmentator(nn.Module):
     y = self.head(y)
     y = F.softmax(y, dim=1)
     if self.CRF:
-      assert(mask is not None)
-      y = self.CRF(x, y, mask)
+      assert(proj_mask is not None)
+      y = self.CRF(x, y, proj_mask)
     return y, y_feature
 
   def save_checkpoint(self, logdir, suffix=""):
