@@ -7,8 +7,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from rangenet.tasks.semantic.postproc.CRF import CRF
 import rangenet.tasks.semantic.__init__ as booger
+from tasks.semantic.postproc.KNN import KNN
 import yaml
 import os
+from util import _map
 
 class Segmentator(nn.Module):
   def __init__(self, path_append="", strict=False):
@@ -21,6 +23,8 @@ class Segmentator(nn.Module):
     self.nclasses = len(self.DATA["learning_map_inv"])
     self.strict = False
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if self.ARCH["post"]["KNN"]["use"]:
+      self.post = KNN(self.ARCH["post"]["KNN"]["params"], self.nclasses)
     # get the model
     bboneModule = imp.load_source("bboneModule",
                                   booger.TRAIN_PATH + '/backbones/' +
@@ -174,3 +178,7 @@ class Segmentator(nn.Module):
     if self.CRF:
       torch.save(self.CRF.state_dict(), logdir +
                  "/segmentation_CRF" + suffix)
+
+  def learning_class_to_label_name(self, c):
+    class_array = _map(c, self.DATA['learning_map_inv'])
+    return [self.DATA['labels'][c] for c in class_array]

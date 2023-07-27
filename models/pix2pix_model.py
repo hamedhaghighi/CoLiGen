@@ -68,6 +68,10 @@ class Pix2PixModel(BaseModel):
             self.optimizers.append(self.optimizer_D)
 
    
+    def data_dependent_initialize(self, data):
+        return
+    def set_seg_model(self, model):
+        return
 
     def set_input(self, data):
         data = fetch_reals(data, self.lidar, self.device)

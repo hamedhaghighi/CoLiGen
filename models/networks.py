@@ -10,6 +10,29 @@ from .stylegan_networks import StyleGAN2Discriminator, StyleGAN2Generator, TileS
 ###############################################################################
 # Helper Functions
 ###############################################################################
+def disentangle_output(output, out_ch, gumbel, out_modality):
+    output_dict = {}
+    i = 0
+    for k in out_ch:
+        output_dict[k] = output[:, i : i + m2ch[k]]
+        i = i + m2ch[k]
+    if 'mask' in output_dict:
+        output_dict['mask_logit'] = output_dict['mask']
+        mask = output_dict['mask'] = gumbel(output_dict['mask'])
+        if 'inv' in output_dict:
+            inv = torch.tanh(output_dict['inv'])
+            output_dict['inv_orig'] = inv
+            output_dict['inv'] = mask * inv + (1 - mask) * -1
+        if 'reflectance' in output_dict:
+            r = torch.tanh(output_dict['reflectance'])
+            output_dict['reflectance'] = mask * r + (1 - mask) * -1
+    out_list = []
+    for m in out_modality:
+        out_list.append(output_dict[m])
+    out = torch.cat(out_list, dim=1)
+    return output_dict, out
+
+
 def get_filter(filt_size=3):
     if(filt_size == 1):
         a = np.array([1., ])
@@ -951,26 +974,9 @@ class ResnetGenerator(nn.Module):
         else:
             """Standard forward"""  
             output = self.model(input)
-            output_dict = {}
-            i = 0
-            for k in self.out_ch:
-                output_dict[k] = output[:, i : i + m2ch[k]]
-                i = i + m2ch[k]
-            if 'mask' in output_dict:
-                output_dict['mask_logit'] = output_dict['mask']
-                mask = output_dict['mask'] = self.gumbel(output_dict['mask'])
-                if 'inv' in output_dict:
-                    inv = torch.tanh(output_dict['inv'])
-                    output_dict['inv_orig'] = inv
-                    output_dict['inv'] = mask * inv + (1 - mask) * -1
-                if 'reflectance' in output_dict:
-                    r = torch.tanh(output_dict['reflectance'])
-                    output_dict['reflectance'] = mask * r + (1 - mask) * -1
-            out_list = []
-            for m in self.out_modality:
-                out_list.append(output_dict[m])
-            out = torch.cat(out_list, dim=1)
-            return output_dict, out
+            return disentangle_output(output, self.out_ch, self.gumbel, self.out_modality)
+
+
 
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
@@ -1067,27 +1073,8 @@ class UnetGenerator(nn.Module):
     def forward(self, input):
         """Standard forward"""
         output = self.model(input)
-        output_dict = {}
-        i = 0
-        for k in self.out_ch:
-            output_dict[k] = output[:, i : i + m2ch[k]]
-            i = i + m2ch[k]
-        if 'mask' in output_dict:
-            output_dict['mask_logit'] = output_dict['mask']
-            mask = output_dict['mask'] = self.gumbel(output_dict['mask'])
-            if 'inv' in output_dict:
-                inv = torch.tanh(output_dict['inv'])
-                output_dict['inv_orig'] = inv
-                output_dict['inv'] = mask * inv + (1 - mask) * -1
-            if 'reflectance' in output_dict:
-                r = torch.tanh(output_dict['reflectance'])
-                output_dict['reflectance'] = mask * r + (1 - mask) * -1
-        out_list = []
-        for m in self.out_modality:
-            out_list.append(output_dict[m])
-        out = torch.cat(out_list, dim=1)
-        return output_dict, out
-
+        return disentangle_output(output, self.out_ch, self.gumbel, self.out_modality)
+        
 
 class UnetSkipConnectionBlock(nn.Module):
     """Defines the Unet submodule with skip connection.

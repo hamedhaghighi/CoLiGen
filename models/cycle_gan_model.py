@@ -70,6 +70,12 @@ class CycleGANModel(BaseModel):
             self.schedulers = []
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
+    
+    def set_seg_model(self, model):
+        return
+
+    def data_dependent_initialize(self, data):
+        return
 
     def set_input(self, input):
         data_A = fetch_reals(input['A'], self.lidar, self.device)

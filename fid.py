@@ -5,7 +5,6 @@ import torch
 import os
 import numpy as np
 from rangenet.tasks.semantic.modules.segmentator import *
-from rangenet.tasks.semantic.postproc.KNN import KNN
 import random
 from scipy import linalg
 import pickle
@@ -13,7 +12,7 @@ from tqdm import trange, tqdm
 from util import _map, prepare_data_for_seg
 
 class FID():
-  def __init__(self, train_dataset, dataset_name, lidar, max_sample=1000, batch_size=8):
+  def __init__(self, model, train_dataset, dataset_name, lidar, max_sample=1000, batch_size=8):
     self.path = './'
     self.batch_size = batch_size
     ds = train_dataset
@@ -22,8 +21,7 @@ class FID():
     # parameters
     self.lidar = lidar 
     # concatenate the encoder and the head
-    with torch.no_grad():
-      self.model = Segmentator()
+    self.model = model
 
     # use knn post processing?
     # self.post = None
@@ -32,7 +30,6 @@ class FID():
     #                    self.n_classes)
 
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    self.model.to(self.device)
 
     if os.path.isfile(stat_dir):
         stat = pickle.load(open(stat_dir, 'rb'))

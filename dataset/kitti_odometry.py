@@ -238,9 +238,9 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                 rgb_path = self.rgb_list[index]
                 rgb = np.array(Image.open(rgb_path))
                 points = np.concatenate([points, rgb.astype('float32')], axis=-1)
-            if self.limited_view:
-                _, W, _ = points.shape
-                points = points[:, int(3*W/8) : int(5*W/8), :]
+            # if self.limited_view:
+            #     _, W, _ = points.shape
+            #     points = points[:, int(3*W/8) : int(5*W/8), :]
 
         else:
             point_cloud = np.fromfile(points_path, dtype=np.float32).reshape((-1, 4))

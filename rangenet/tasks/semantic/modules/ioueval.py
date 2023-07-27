@@ -17,8 +17,8 @@ class iouEval:
     self.ignore = torch.tensor(ignore).long()
     self.include = torch.tensor(
         [n for n in range(self.n_classes) if n not in self.ignore]).long()
-    print("[IOU EVAL] IGNORE: ", self.ignore)
-    print("[IOU EVAL] INCLUDE: ", self.include)
+    # print("[IOU EVAL] IGNORE: ", self.ignore)
+    # print("[IOU EVAL] INCLUDE: ", self.include)
     self.reset()
 
   def num_classes(self):

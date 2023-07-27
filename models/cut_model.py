@@ -51,11 +51,7 @@ class CUTModel(BaseModel):
         self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch, opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m)
         self.netF = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m)
         self.netF_feat = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m)
-        if opt_m.lambda_NCE_feat > 0.0:
-            with torch.no_grad():
-                self.seg_model = Segmentator().to(self.device)
 
-            
         if self.isTrain:
             self.netD = networks.define_D(input_nc_D, opt_m.ndf, opt_m.netD, opt_m.n_layers_D, opt_m.normD, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.no_antialias, opt_m)
             # define loss functions
@@ -70,6 +66,9 @@ class CUTModel(BaseModel):
             self.schedulers = []
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
+    
+    def set_seg_model(self, model):
+        self.seg_model = model
 
     def data_dependent_initialize(self, data):
         """

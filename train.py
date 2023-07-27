@@ -4,6 +4,7 @@ from models import create_model
 from util.visualizer import Visualizer
 from fid import FID
 from dataset.datahandler import get_data_loader
+from rangenet.tasks.semantic.modules.segmentator import *
 import yaml
 import argparse
 import numpy as np
@@ -18,6 +19,8 @@ from util.sampling.fps import downsample_point_clouds
 from util.metrics.cov_mmd_1nna import compute_cov_mmd_1nna
 from util.metrics.jsd import compute_jsd
 from util.metrics.swd import compute_swd
+from util.metrics.seg_accuracy import compute_seg_accuracy
+
 import random
 
 
@@ -162,18 +165,20 @@ def main(runner_cfg_path=None):
     lidar.to(device)
     visualizer = Visualizer(opt.training, lidar, dataset_name=opt.dataset.dataset_A.name)   # create a visualizer that display/save images and plots
     g_steps = 0
-    min_jsd = 10
+    min_fid = 10000
     
 
     train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size)
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False)  
     test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
+    with torch.no_grad():
+        seg_model = Segmentator().to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
     ## initilisation of the model for netF in cut
     train_dl_iter = iter(train_dl); data = next(train_dl_iter); model.data_dependent_initialize(data)
-    model.setup(opt.training)               # regular setup: load and print networks; create schedulers
-
-    fid_cls = FID(train_dataset, cl_args.ref_dataset_name, lidar) if cl_args.ref_dataset_name!= '' else None
+    model.setup(opt.training)
+    model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
+    fid_cls = FID(seg_model, train_dataset, cl_args.ref_dataset_name, lidar) if cl_args.ref_dataset_name!= '' else None
     n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
     test_dl_iter = iter(test_dl)
     data_dict = defaultdict(list)
@@ -242,11 +247,14 @@ def main(runner_cfg_path=None):
         data_dict['synth-2d'] = [] 
         data_dict['synth-3d'] = []
         fid_samples = [] if fid_cls is not None else None
+        iou_list = []
+        m_acc_list = []
         for i in range(n_val_batch):
             data = next(val_dl_iter)
             model.set_input(data)
             with torch.no_grad():
-                model.calc_supervised_metrics()
+                model.calc_supervised_metrics(cl_args.no_inv)
+            
             fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar, device)
             if cl_args.on_input:
                 assert is_two_dataset == False
@@ -265,7 +273,7 @@ def main(runner_cfg_path=None):
                     synth_inv = model.synth_inv
                 else:
                     synth_inv = fetched_data['inv'] * synth_mask
-
+            
             data_dict['synth-2d'].append(synth_inv)
             data_dict['synth-3d'].append(inv_to_xyz(synth_inv, lidar))
 
@@ -275,7 +283,10 @@ def main(runner_cfg_path=None):
                 synth_reflectance = tanh_to_sigmoid(synth_reflectance)
                 synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
                 fid_samples.append(synth_data)
-
+                if not opt.training.isTrain:
+                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data, fetched_data['label'])
+                    iou_list.append(iou.cpu().numpy())
+                    m_acc_list.append(m_acc.cpu().numpy())
 
             if i == dis_batch_ind:
                 vis_dict = model.get_current_visuals()
@@ -284,7 +295,16 @@ def main(runner_cfg_path=None):
             for k ,v in model.get_current_losses(is_eval=True).items():
                 val_losses[k].append(v)
             val_tq.update(1)
-        
+        if not opt.training.isTrain:
+            avg_m_acc = np.array(m_acc_list).mean()
+            iou_avg = np.array(iou_list).mean(axis=0)
+            label_names = seg_model.learning_class_to_label_name(np.arange(len(iou_avg)))
+            print('avg seg acc:', avg_m_acc)
+            print('iou avg:')
+            print_str = ''
+            for l, iou in zip(label_names, iou_avg):
+                print_str = print_str + f'{l}:{iou} '
+            print(print_str)
 
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}
         visualizer.plot_current_losses(tag, epoch, losses, g_steps)
@@ -299,14 +319,13 @@ def main(runner_cfg_path=None):
         scores = {}
         scores.update(compute_swd(data_dict["synth-2d"], data_dict["real-2d"]))
         scores["jsd"] = compute_jsd(data_dict["synth-3d"] / 2.0, data_dict["real-3d"] / 2.0)
-        if scores["jsd"] < min_jsd and opt.training.isTrain:
-            min_jsd = scores["jsd"]
-            model.save_networks('best')
-
         scores.update(compute_cov_mmd_1nna(data_dict["synth-3d"], data_dict["real-3d"], 512, ("cd",)))
         torch.cuda.empty_cache()
         if fid_cls is not None:
             scores['fid'] = fid_cls.fid_score(torch.cat(fid_samples, dim=0))
+        if scores["fid"] < min_fid and opt.training.isTrain:
+            min_fid = scores["fid"]
+            model.save_networks('best')
         visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, g_steps)
         visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
 

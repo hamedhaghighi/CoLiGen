@@ -236,10 +236,10 @@ class LiDAR(Coordinate):
         fov_down = -25.0 / 180.0 * np.pi  
         fov = abs(fov_down) + abs(fov_up)
         pitch = (1 - (torch.arange(H) / H)) * fov - abs(fov_down)
-        if self.has_rgb:
-            yaw = (1 - (torch.arange(512) / 512) * 2) * (np.pi / 4)
-        else:
-            yaw = (1 - (torch.arange(2048) / 2048) * 2) * np.pi
+        # if self.has_rgb:
+        #     yaw = (1 - (torch.arange(512) / 512) * 2) * (np.pi / 4)
+        # else:
+        yaw = (1 - (torch.arange(2048) / 2048) * 2) * np.pi
         pitch_grid, yaw_grid = torch.meshgrid(pitch, yaw)
         angle = torch.stack([pitch_grid, yaw_grid], dim=0)[None]
         angle = F.interpolate(angle, size=(H, W), mode="bilinear")
