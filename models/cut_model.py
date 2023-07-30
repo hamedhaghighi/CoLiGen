@@ -185,13 +185,13 @@ class CUTModel(BaseModel):
         # update G
         self.set_requires_grad(self.netD, False)
         self.optimizer_G.zero_grad()
-        if self.opt.model.netF == 'mlp_sample':
+        if self.opt.model.netF == 'mlp_sample' and self.opt.model.lambda_NCE > 0.0:
             self.optimizer_F.zero_grad()
         if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
-        if self.opt.model.netF == 'mlp_sample':
+        if self.opt.model.netF == 'mlp_sample' and self.opt.model.lambda_NCE > 0.0:
             self.optimizer_F.step()
         if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.step()

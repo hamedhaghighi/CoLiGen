@@ -1070,7 +1070,7 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, same_size_kernel=same_kernel_size)  # add the outermost layer
 
-    def forward(self, input):
+    def forward(self, input, layers=[], encode_only=False):
         """Standard forward"""
         output = self.model(input)
         return disentangle_output(output, self.out_ch, self.gumbel, self.out_modality)
