@@ -174,10 +174,10 @@ def main(runner_cfg_path=None):
     with torch.no_grad():
         seg_model = Segmentator().to(device)
     model = create_model(opt, lidar)      # create a model given opt.model and other options
+    model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut
     train_dl_iter = iter(train_dl); data = next(train_dl_iter); model.data_dependent_initialize(data)
     model.setup(opt.training)
-    model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     fid_cls = FID(seg_model, train_dataset, cl_args.ref_dataset_name, lidar) if cl_args.ref_dataset_name!= '' else None
     n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
     test_dl_iter = iter(test_dl)
