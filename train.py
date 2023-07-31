@@ -73,6 +73,7 @@ def check_exp_exists(opt, cfg_args):
     opt_m = opt.model
     opt_d = opt.dataset.dataset_A
     modality_A = '_'.join(opt_m.modality_A)
+    cond_modality = '_'.join(opt_m.modality_cond)
     out_ch = '_'.join(opt_m.out_ch)
     if cfg_args.load != '':
         # opt_t.name = cfg_path.split(os.sep)[1]
@@ -93,7 +94,7 @@ def check_exp_exists(opt, cfg_args):
                 + f'_lambda_gc_{opt_m.lambda_gc}_lambda_G_{opt_m.lambda_G}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
                     + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_batch_size_{opt_t.batch_size}_finesize_{opt_d.img_prop.finesize}'
         elif 'cut' in opt_m.name:
-            opt_t.name = f'cut_modality_A_{modality_A}_out_ch_{out_ch}_nce_idt_{opt_m.nce_idt}_lambda_GAN_{opt_m.lambda_GAN}' \
+            opt_t.name = f'cut_modality_A_{modality_A}_out_ch_{out_ch}_cond_modality_{cond_modality}_nce_idt_{opt_m.nce_idt}_lambda_GAN_{opt_m.lambda_GAN}' \
                 + f'_lambda_NCE_{opt_m.lambda_NCE}_lambda_NCE_feat_{opt_m.lambda_NCE_feat}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
                     + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_netF_{opt_m.netF}_nce_includes_all_negatives_from_minibatch_{opt_m.nce_includes_all_negatives_from_minibatch}_batch_size_{opt_t.batch_size}_finesize_{opt_d.img_prop.finesize}'
         

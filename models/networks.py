@@ -391,9 +391,6 @@ class ContentEncoder(nn.Module):
         else:
             return self.model(x), None
 
-        for layer_id, layer in enumerate(self.model):
-            print(layer_id, layer)
-
         
 class ResBlock(nn.Module):
     def __init__(self, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
@@ -646,7 +643,7 @@ class G_Resnet(nn.Module):
 
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], out_ch=None, same_kernel_size=True, no_antialias=False, no_antialias_up=False, opt=None):
+def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], out_ch=None, same_kernel_size=True, no_antialias=False, no_antialias_up=False, opt=None, encode_layer=None):
     """Create a generator
 
     Parameters:
@@ -677,9 +674,9 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     norm_layer = get_norm_layer(norm_type=norm)
 
     if netG == 'resnet_9blocks':
-        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up)
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer)
     elif netG == 'resnet_6blocks':
-        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up)
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer)
     elif netG == 'unet_64':
         net = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=False, out_ch=out_ch)
     elif netG == 'unet_128':
@@ -879,7 +876,7 @@ class ResnetGenerator(nn.Module):
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect', out_ch=None, no_antialias=False, no_antialias_up=False):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect', out_ch=None, no_antialias=False, no_antialias_up=False, encode_layer=None):
         """Construct a Resnet-based generator
 
         Parameters:
@@ -946,35 +943,31 @@ class ResnetGenerator(nn.Module):
         model += [nn.ReflectionPad2d(3)]
         model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         # model += [nn.Tanh()]
-
+        if encode_layer is not None:
+            model = model[:encode_layer]
         self.model = nn.Sequential(*model)
 
-    def forward(self, input, layers=[], encode_only=False):
+    def forward(self, input, layers=[], encode_only=False, cond=None):
         """Standard forward"""
 
         if -1 in layers:
             layers.append(len(self.model))
-        if len(layers) > 0:
-            feat = input
-            feats = []
-            for layer_id, layer in enumerate(self.model):
-                # print(layer_id, layer)
-                feat = layer(feat)
-                if layer_id in layers:
-                    # print("%d: adding the output of %s %d" % (layer_id, layer.__class__.__name__, feat.size(1)))
-                    feats.append(feat)
-                else:
-                    # print("%d: skipping %s %d" % (layer_id, layer.__class__.__name__, feat.size(1)))
-                    pass
-                if layer_id == layers[-1] and encode_only:
-                    # print('encoder only return features')
-                    return feats  # return intermediate features alone; stop in the last layers
-
-            return feat, feats  # return both output and intermediate features
-        else:
-            """Standard forward"""  
-            output = self.model(input)
-            return disentangle_output(output, self.out_ch, self.gumbel, self.out_modality)
+        feat = input
+        feats = []
+        for layer_id, layer in enumerate(self.model):
+            feat = layer(feat)
+            if layer_id in layers:
+                feats.append(feat)
+            if len(layers) > 0 and layer_id == layers[-1] and cond is not None :
+                feat += cond
+                # print('encoder only return features')
+        if encode_only:
+            return feats
+        return disentangle_output(feat, self.out_ch, self.gumbel, self.out_modality)  # return both output and intermediate features
+        # else:
+        #     """Standard forward"""  
+        #     output = self.model(input)
+        #     return disentangle_output(output, self.out_ch, self.gumbel, self.out_modality)
 
 
 
@@ -1038,7 +1031,7 @@ class ResnetBlock(nn.Module):
         return out
 
 
-class UnetGenerator(nn.Module):
+class UnetGenerator_2(nn.Module):
     """Create a Unet-based generator"""
 
     def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, out_ch = None, same_kernel_size=True):
@@ -1074,6 +1067,85 @@ class UnetGenerator(nn.Module):
         """Standard forward"""
         output = self.model(input)
         return disentangle_output(output, self.out_ch, self.gumbel, self.out_modality)
+
+class UnetGenerator(nn.Module):
+    """Create a Unet-based generator"""
+
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, out_ch = None, same_kernel_size=True, encode_layer=None):
+        """Construct a Unet generator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            output_nc (int) -- the number of channels in output images
+            num_downs (int) -- the number of downsamplings in UNet. For example, # if |num_downs| == 7,
+                                image of size 128x128 will become of size 1x1 # at the bottleneck
+            ngf (int)       -- the number of filters in the last conv layer
+            norm_layer      -- normalization layer
+
+        We construct the U-Net from the innermost layer to the outermost layer.
+        It is a recursive process.
+        """
+        super(UnetGenerator, self).__init__()
+        downrelu = nn.LeakyReLU(0.2, True)
+        downnorm = norm_layer(input_nc)
+        uprelu = nn.ReLU(True)
+        upnorm = norm_layer(output_nc)
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+        
+        # construct unet structure
+        self.out_ch = out_ch
+        self.out_modality = self.out_ch.copy()
+        if 'mask' in self.out_modality:
+            self.out_modality.remove('mask')
+        self.num_downs = num_downs
+        self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
+        k = (4, 4)
+        s = (2, 2)
+        model = []
+        model += nn.Conv2d(input_nc, ngf, kernel_size=k, stride=s, padding=(1, 1), bias=use_bias)
+        for i in range(3):
+            model += [nn.Sequential(*[downrelu, nn.Conv2d(ngf*(2**i), ngf*(2**(i+1)), kernel_size=4, stride=2, padding=1, bias=use_bias), norm_layer(ngf*(2**(i+1)))])]
+        for i in range(num_downs - 5):
+            model += [nn.Sequential(*[downrelu, nn.Conv2d(ngf*8, ngf*8, kernel_size=4, stride=2, padding=1, bias=use_bias), norm_layer(ngf*8)])]
+        model += [nn.Sequential(*[downrelu, nn.Conv2d(ngf*8, ngf*8, kernel_size=4, stride=2, padding=1, bias=use_bias)])]
+        model += [nn.Sequential(*[uprelu, nn.ConvTranspose2d(ngf*8, ngf*8, kernel_size=4, stride=2, padding=1, bias=use_bias), norm_layer(ngf*8)])]
+        for i in range(num_downs - 5):
+            l = [uprelu, nn.ConvTranspose2d(ngf*8*2, ngf*8, kernel_size=4, stride=2, padding=1, bias=use_bias), norm_layer(ngf*8)]
+            if use_dropout:
+                l += [nn.Dropout(0.5)]
+            model += [nn.Sequential(*l)]
+        for i in range(3,0,-1):
+            model += [nn.Sequential(*[uprelu, nn.ConvTranspose2d(ngf*(2**i)*2, ngf*(2**(i-1)), kernel_size=4, stride=2, padding=1, bias=use_bias), norm_layer(ngf*(2**i))])]
+        model += [nn.Sequential(*[uprelu, nn.ConvTranspose2d(ngf * 2, output_nc, kernel_size=k, stride=s, padding=(1, 1))])]
+        if encode_layer is not None:
+            model = model[:encode_layer]
+        self.model = nn.Sequential(*model)
+
+
+        
+    def forward(self, input, layers=[], encode_only=False, cond=None):
+        """Standard forward"""
+        feed_layers = []
+        if -1 in layers:
+            layers.append(len(self.model))
+        feat = input
+        feats = []
+        for layer_id, layer in enumerate(self.model):
+            feat = layer(feat)
+            if layer_id < self.num_downs - 1:
+                feed_layers.append(feat)
+            if layer_id > self.num_downs - 1 and layer_id < len(self.model) - 1:
+                feat = torch.cat([feed_layers[layer_id - 1], feat], dim=1)
+            if layer_id in layers:
+                feats.append(feat)
+            if len(layers) > 0 and layer_id == layers[-1] and cond is not None :
+                feat += cond
+                # print('encoder only return features')
+        if encode_only:
+            return feats
+        return disentangle_output(feat, self.out_ch, self.gumbel, self.out_modality)  # return both output and intermediate features
         
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -1139,6 +1211,7 @@ class UnetSkipConnectionBlock(nn.Module):
 
     def forward(self, x):
         if self.outermost:
+            import pdb; pdb.set_trace()
             return self.model(x)
         else:   # add skip connections
             return torch.cat([x, self.model(x)], 1)

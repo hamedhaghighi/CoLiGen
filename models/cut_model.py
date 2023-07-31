@@ -13,6 +13,7 @@ from . import networks
 import random
 import math
 import sys
+from itertools import chain
 from rangenet.tasks.semantic.modules.segmentator import *
 
 class CUTModel(BaseModel):
@@ -22,7 +23,7 @@ class CUTModel(BaseModel):
         opt_t = opt.training
         self.lidar = lidar
         if self.isTrain:
-            self.model_names = ['G', 'F', 'D', 'F_feat']
+            self.model_names = ['G', 'D']
         else:
             self.model_names = ['G']
         
@@ -32,35 +33,41 @@ class CUTModel(BaseModel):
             self.loss_names.extend(['NCE_Y_pix'])
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE_feat and self.isTrain:
             self.loss_names.extend(['NCE_Y_feat'])
-        if self.opt.model.lambda_NCE and self.isTrain:
+        if self.opt.model.lambda_NCE > 0.0 and self.isTrain:
             self.loss_names.extend(['NCE_pix'])
-        if self.opt.model.lambda_NCE_feat and self.isTrain:
+            self.model_names.append('F')
+        if self.opt.model.lambda_NCE_feat > 0.0 and self.isTrain:
             self.loss_names.extend(['NCE_feat'])
+            self.model_names.append('F_feat')
         self.visual_names = []
         for m in opt_m.modality_A:
             self.visual_names.append('real_' + m)
         for m in opt_m.modality_B:
             self.visual_names.append('synth_' + m)
             self.visual_names.append('real_B_' + m)
-        
+        for m in opt_m.modality_cond:
+            self.visual_names.append('real_' + m)
+        cond_nc_g = np.array([m2ch[m] for m in opt_m.modality_cond]).sum() if len(opt_m.modality_cond) > 0 else None
         input_nc_G = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
         output_nc_G = np.array([m2ch[m] for m in opt_m.out_ch]).sum()
         input_nc_D = np.array([m2ch[m] for m in opt_m.modality_B]).sum()
 
-        same_kernel_size = opt.dataset.dataset_A.img_prop.width == opt.dataset.dataset_A.img_prop.height
+        # same_kernel_size = opt.dataset.dataset_A.img_prop.width == opt.dataset.dataset_A.img_prop.height
+        self.netC = networks.define_G(cond_nc_g, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch,\
+             opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m, encode_layer=self.nce_layers[-1]) if cond_nc_g else None
         self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch, opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m)
-        self.netF = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m)
-        self.netF_feat = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m)
-
+        self.netF = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m) if self.opt.model.lambda_NCE > 0.0 else None
+        self.netF_feat = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m) if self.opt.model.lambda_NCE_feat > 0.0 else None
+        
         if self.isTrain:
             self.netD = networks.define_D(input_nc_D, opt_m.ndf, opt_m.netD, opt_m.n_layers_D, opt_m.normD, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.no_antialias, opt_m)
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt_m.gan_mode).to(self.device)
             self.criterionNCE = []
-            for nce_layer in self.nce_layers:
+            for _ in self.nce_layers:
                 self.criterionNCE.append(PatchNCELoss(opt_m, opt_t.batch_size).to(self.device))
             self.criterionIdt = torch.nn.L1Loss().to(self.device)
-            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, opt_t.beta2))
+            self.optimizer_G = torch.optim.Adam(chain(self.netG.parameters(), self.netC.parameters()) if self.netC is not None else self.netG.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, opt_t.beta2))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt_t.lr, betas=(opt_t.beta1, opt_t.beta2))
             self.optimizers = []
             self.schedulers = []
@@ -100,6 +107,7 @@ class CUTModel(BaseModel):
         for k, v in data_B.items():
             setattr(self, 'real_B_' + k, v)
         self.real_A = cat_modality(data_A, self.opt.model.modality_A)
+        self.cond_A = cat_modality(data_A, self.opt.model.modality_cond) if self.netC is not None else None 
         self.real_B = cat_modality(data_B, self.opt.model.modality_B)
         self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
         self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
@@ -113,7 +121,9 @@ class CUTModel(BaseModel):
             self.flipped_for_equivariance = self.isTrain and (np.random.random() < 0.5)
             if self.flipped_for_equivariance:
                 self.real = torch.flip(self.real, [3])
-        out_dict, self.fake = self.netG(self.real)
+
+        self.cond = self.netC(self.cond_A) if self.cond_A is not None else None
+        out_dict, self.fake = self.netG(self.real, cond=self.cond)
         self.fake_B = self.fake[:self.real_A.size(0)]
         if self.opt.model.nce_idt:
             self.idt_B = self.fake[self.real_A.size(0):]
@@ -185,13 +195,13 @@ class CUTModel(BaseModel):
         # update G
         self.set_requires_grad(self.netD, False)
         self.optimizer_G.zero_grad()
-        if self.opt.model.netF == 'mlp_sample' and self.opt.model.lambda_NCE > 0.0:
+        if self.opt.model.lambda_NCE > 0.0 and self.opt.model.netF == 'mlp_sample':
             self.optimizer_F.zero_grad()
         if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
-        if self.opt.model.netF == 'mlp_sample' and self.opt.model.lambda_NCE > 0.0:
+        if self.opt.model.lambda_NCE > 0.0 and self.opt.model.netF == 'mlp_sample':
             self.optimizer_F.step()
         if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.step()
