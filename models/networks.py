@@ -678,11 +678,11 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'resnet_6blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer)
     elif netG == 'unet_64':
-        net = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=False, out_ch=out_ch)
+        net = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=False, out_ch=out_ch, encode_layer=encode_layer)
     elif netG == 'unet_128':
-        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=same_kernel_size, out_ch=out_ch)
+        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=same_kernel_size, out_ch=out_ch, encode_layer=encode_layer)
     elif netG == 'unet_256':
-        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, out_ch=out_ch, same_kernel_size=same_kernel_size)
+        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, out_ch=out_ch, same_kernel_size=same_kernel_size, encode_layer=encode_layer)
     elif netG == 'stylegan2':
         net = StyleGAN2Generator(input_nc, output_nc, ngf, use_dropout=use_dropout, opt=opt)
     elif netG == 'smallstylegan2':
@@ -892,6 +892,7 @@ class ResnetGenerator(nn.Module):
         super(ResnetGenerator, self).__init__()
         self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
         self.out_ch = out_ch
+        self.encode_layer = encode_layer
         self.out_modality = self.out_ch.copy()
         if 'mask' in self.out_modality:
             self.out_modality.remove('mask')
@@ -947,7 +948,7 @@ class ResnetGenerator(nn.Module):
             model = model[:encode_layer]
         self.model = nn.Sequential(*model)
 
-    def forward(self, input, layers=[], encode_only=False, cond=None):
+    def forward(self, input, layers=[], encode_only=False, cond=None, cond_layer=None):
         """Standard forward"""
 
         if -1 in layers:
@@ -958,11 +959,13 @@ class ResnetGenerator(nn.Module):
             feat = layer(feat)
             if layer_id in layers:
                 feats.append(feat)
-            if len(layers) > 0 and layer_id == layers[-1] and cond is not None :
+            if cond is not None and layer_id == cond_layer - 1:
                 feat += cond
                 # print('encoder only return features')
         if encode_only:
             return feats
+        elif self.encode_layer is not None:
+            return feat
         return disentangle_output(feat, self.out_ch, self.gumbel, self.out_modality)  # return both output and intermediate features
         # else:
         #     """Standard forward"""  
@@ -1086,9 +1089,7 @@ class UnetGenerator(nn.Module):
         """
         super(UnetGenerator, self).__init__()
         downrelu = nn.LeakyReLU(0.2, True)
-        downnorm = norm_layer(input_nc)
         uprelu = nn.ReLU(True)
-        upnorm = norm_layer(output_nc)
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
@@ -1100,11 +1101,12 @@ class UnetGenerator(nn.Module):
         if 'mask' in self.out_modality:
             self.out_modality.remove('mask')
         self.num_downs = num_downs
+        self.encode_layer = encode_layer
         self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
         k = (4, 4)
         s = (2, 2)
         model = []
-        model += nn.Conv2d(input_nc, ngf, kernel_size=k, stride=s, padding=(1, 1), bias=use_bias)
+        model += [nn.Conv2d(input_nc, ngf, kernel_size=k, stride=s, padding=(1, 1), bias=use_bias)]
         for i in range(3):
             model += [nn.Sequential(*[downrelu, nn.Conv2d(ngf*(2**i), ngf*(2**(i+1)), kernel_size=4, stride=2, padding=1, bias=use_bias), norm_layer(ngf*(2**(i+1)))])]
         for i in range(num_downs - 5):
@@ -1125,7 +1127,7 @@ class UnetGenerator(nn.Module):
 
 
         
-    def forward(self, input, layers=[], encode_only=False, cond=None):
+    def forward(self, input, layers=[], encode_only=False, cond=None, cond_layer=None):
         """Standard forward"""
         feed_layers = []
         if -1 in layers:
@@ -1134,17 +1136,21 @@ class UnetGenerator(nn.Module):
         feats = []
         for layer_id, layer in enumerate(self.model):
             feat = layer(feat)
-            if layer_id < self.num_downs - 1:
-                feed_layers.append(feat)
-            if layer_id > self.num_downs - 1 and layer_id < len(self.model) - 1:
-                feat = torch.cat([feed_layers[layer_id - 1], feat], dim=1)
             if layer_id in layers:
                 feats.append(feat)
-            if len(layers) > 0 and layer_id == layers[-1] and cond is not None :
+            if layer_id < self.num_downs - 1:
+                feed_layers.append(feat)
+            if cond is not None and layer_id == cond_layer - 1:
                 feat += cond
+            if layer_id > self.num_downs - 1 and layer_id < len(self.model) - 1:
+                feat = torch.cat([feed_layers[-1], feat], dim=1)
+                feed_layers = feed_layers[:-1]
+
                 # print('encoder only return features')
         if encode_only:
             return feats
+        elif self.encode_layer is not None:
+            return feat
         return disentangle_output(feat, self.out_ch, self.gumbel, self.out_modality)  # return both output and intermediate features
         
 
@@ -1211,7 +1217,6 @@ class UnetSkipConnectionBlock(nn.Module):
 
     def forward(self, x):
         if self.outermost:
-            import pdb; pdb.set_trace()
             return self.model(x)
         else:   # add skip connections
             return torch.cat([x, self.model(x)], 1)

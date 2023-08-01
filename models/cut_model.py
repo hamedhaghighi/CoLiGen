@@ -108,6 +108,7 @@ class CUTModel(BaseModel):
             setattr(self, 'real_B_' + k, v)
         self.real_A = cat_modality(data_A, self.opt.model.modality_A)
         self.cond_A = cat_modality(data_A, self.opt.model.modality_cond) if self.netC is not None else None 
+        self.cond_B = cat_modality(data_B, self.opt.model.modality_cond) if self.netC is not None else None 
         self.real_B = cat_modality(data_B, self.opt.model.modality_B)
         self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
         self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
@@ -117,13 +118,16 @@ class CUTModel(BaseModel):
 
     def forward(self):
         self.real = torch.cat((self.real_A, self.real_B_mod_A), dim=0) if self.opt.model.nce_idt and self.isTrain else self.real_A
+        if self.cond_A is not None:
+            self.cond = torch.cat((self.cond_A, self.cond_B), dim=0) if self.opt.model.nce_idt and self.isTrain else self.cond_A
+        else:
+            self.cond = None
         if self.opt.model.flip_equivariance:
             self.flipped_for_equivariance = self.isTrain and (np.random.random() < 0.5)
             if self.flipped_for_equivariance:
                 self.real = torch.flip(self.real, [3])
-
-        self.cond = self.netC(self.cond_A) if self.cond_A is not None else None
-        out_dict, self.fake = self.netG(self.real, cond=self.cond)
+        self.cond_feat = self.netC(self.cond) if self.cond is not None else None
+        out_dict, self.fake = self.netG(self.real, cond=self.cond_feat, cond_layer=self.nce_layers[-1])
         self.fake_B = self.fake[:self.real_A.size(0)]
         if self.opt.model.nce_idt:
             self.idt_B = self.fake[self.real_A.size(0):]
