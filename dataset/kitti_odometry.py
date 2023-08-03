@@ -20,7 +20,8 @@ CONFIG = {
         "train": [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
         "val": [8],
         "test": [8],
-        "synthlidar": [9]
+        "synthlidar": [9],
+
     },
 }
 CONFIG_CARLA = {
@@ -31,7 +32,13 @@ CONFIG_CARLA = {
     },
 }
  
-
+CONFIG_SEMANTICPOSS = {
+    "split": {
+        "train": [0, 1, 2, 3, 4],
+        "val": [5],
+        "test": [5]
+    },
+}
 
 MIN_DEPTH = 0.9
 MAX_DEPTH = 120.0
@@ -58,7 +65,12 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         super().__init__()
         self.root = osp.join(root, "sequences")
         self.split = split
-        self.config = CONFIG_CARLA if name == 'carla' else CONFIG
+        if name == 'carla':
+            self.config = CONFIG_CARLA
+        elif name == 'semanticPOSS':
+            self.config = CONFIG_SEMANTICPOSS
+        else:
+            self.config = CONFIG
         self.subsets = np.asarray(self.config["split"][split])
         self.shape = tuple(shape)
         self.min_depth = MIN_DEPTH
@@ -246,7 +258,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             point_cloud = np.fromfile(points_path, dtype=np.float32).reshape((-1, 4))
             if self.has_label:
                 labels_path = self.label_list[index]
-                if self.name == 'kitti' or self.name=='carla':
+                if self.name in ['kitti', 'carla', 'semanticPOSS']:
                     label = np.fromfile(labels_path, dtype=np.int32)
                     sem_label = label & 0xFFFF 
                     sem_label = _map(_map(sem_label, self.DATA.learning_map), self.DATA.m_learning_map)
@@ -259,11 +271,13 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                 rgb_image = np.array(Image.open(rgb_path))
                 rgb = self.image_to_pcl(rgb_image, point_cloud)
                 point_cloud = np.concatenate([point_cloud, rgb.astype('float32')], axis=1)
-            if self.name == 'kitti' or self.name=='carla': 
-                W = 512 if self.has_rgb else 2048
+            if self.name in ['kitti', 'carla']: 
+                H, W =64, 2048
             elif self.name == 'synthlidar':
-                W = 1570
-            points, _ = point_cloud_to_xyz_image(point_cloud, H=self.shape[0], W=W, is_sorted=self.is_sorted, limited_view=self.limited_view)
+                H, W = 64, 1570
+            elif self.name == 'semanticPOSS':
+                H, W = 40, 1800
+            points, _ = point_cloud_to_xyz_image(point_cloud, H=H, W=W, is_sorted=self.is_sorted, limited_view=self.limited_view)
             
         out = {}
         out["points"] = points[..., :3]

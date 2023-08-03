@@ -39,6 +39,8 @@ class CUTModel(BaseModel):
         if self.opt.model.lambda_NCE_feat > 0.0 and self.isTrain:
             self.loss_names.extend(['NCE_feat'])
             self.model_names.append('F_feat')
+        if len(opt_m.modality_cond) > 0 :
+            self.model_names.append('C')
         self.visual_names = []
         for m in opt_m.modality_A:
             self.visual_names.append('real_' + m)
@@ -107,9 +109,9 @@ class CUTModel(BaseModel):
         for k, v in data_B.items():
             setattr(self, 'real_B_' + k, v)
         self.real_A = cat_modality(data_A, self.opt.model.modality_A)
+        self.real_B = cat_modality(data_B, self.opt.model.modality_B)
         self.cond_A = cat_modality(data_A, self.opt.model.modality_cond) if self.netC is not None else None 
         self.cond_B = cat_modality(data_B, self.opt.model.modality_cond) if self.netC is not None else None 
-        self.real_B = cat_modality(data_B, self.opt.model.modality_B)
         self.real_B_mod_A = cat_modality(data_B, self.opt.model.modality_A)
         self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
         self.data_A = data_A

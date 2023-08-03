@@ -201,7 +201,6 @@ def main(runner_cfg_path=None):
         e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
         # Train loop
         if opt.training.isTrain:
-            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
             visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
             model.train(True)
             train_dl_iter = iter(train_dl)
@@ -329,7 +328,8 @@ def main(runner_cfg_path=None):
             model.save_networks('best')
         visualizer.plot_current_losses('unsupervised_metrics', epoch, scores, g_steps)
         visualizer.print_current_losses('unsupervised_metrics', epoch, e_steps, scores, val_tq)
-
+        if opt.training.isTrain:
+            model.update_learning_rate()    # update learning rates in the beginning of every epoch.
         epoch_tq.update(1)
         print('End of epoch %d \t Time Taken: %d sec' % (epoch, time.time() - epoch_start_time))
 
