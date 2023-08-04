@@ -64,7 +64,13 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, limited_view=False):
+def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, limited_view=False, tag=None):
+    if tag is not None:
+        C = points.shape[1]
+        proj = np.zeros((H * W, C), dtype=np.float32)
+        proj[tag] = points
+        return proj.reshape((H, W, C)), None
+
     xyz = points[:, :3]  # xyz
     x = xyz[:, 0]
     y = xyz[:, 1]
@@ -76,7 +82,6 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
         fov_down = fov_down/ 180.0 * np.pi  # field of view down in rad
         fov = abs(fov_down) + abs(fov_up)
         pitch = np.arcsin(z / depth)
-        # print(np.round(pitch, 3).min(), np.round(pitch, 3).max())
         grid_h = 1.0 - (pitch + abs(fov_down)) / fov
         grid_h = np.clip(np.round(grid_h * H), 0, H-1)
     else:
@@ -108,13 +113,12 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
     return proj, grid
 
 class Coordinate(nn.Module):
-    def __init__(self, min_depth, max_depth, shape, drop_const=0, has_rgb=False) -> None:
+    def __init__(self, min_depth, max_depth, shape, drop_const=0) -> None:
         super().__init__()
         self.min_depth = min_depth
         self.max_depth = max_depth
         self.H, self.W = shape
         self.drop_const = drop_const
-        self.has_rgb = has_rgb
         self.register_buffer("angle", self.init_coordmap(self.H, self.W))
 
     def init_coordmap(self, H, W):
@@ -213,63 +217,38 @@ class Coordinate(nn.Module):
 class LiDAR(Coordinate):
     def __init__(
         self,
-        num_ring,
-        num_points,
-        angle_file,
-        min_depth=0.9,
-        max_depth=120.0,
-        has_rgb=False
+        cfg,
+        height=64,
+        width=256,
     ):
-        # assert os.path.exists(angle_file), angle_file
-        self.angle_file = angle_file
-
+        num_ring, num_points = cfg.height, cfg.width
+        min_depth, max_depth = cfg.min_depth, cfg.max_depth
+        angle_dir = lambda dir: os.path.join(os.path.sep.join(dir.split(os.path.sep)[:-2]),'angles.pt')
+        self.angle_file = angle_dir(cfg.data_dir)
+        assert os.path.exists(self.angle_file), self.angle_file
+        self.fov_down = cfg.fov_down
+        self.fov_up = cfg.fov_up
+        self.height, self.width = height, width
         super().__init__(
             min_depth=min_depth,
             max_depth=max_depth,
-            shape=(num_ring, num_points),
-            has_rgb=has_rgb
+            shape=(num_ring, num_points)
         )
 
     def init_coordmap(self, H, W):
-        # angle = torch.load(self.angle_file)[None]
-        fov_up = 3.0 / 180.0 * np.pi     
-        fov_down = -25.0 / 180.0 * np.pi  
-        fov = abs(fov_down) + abs(fov_up)
-        pitch = (1 - (torch.arange(H) / H)) * fov - abs(fov_down)
-        # if self.has_rgb:
-        #     yaw = (1 - (torch.arange(512) / 512) * 2) * (np.pi / 4)
-        # else:
-        yaw = (1 - (torch.arange(2048) / 2048) * 2) * np.pi
-        pitch_grid, yaw_grid = torch.meshgrid(pitch, yaw)
-        angle = torch.stack([pitch_grid, yaw_grid], dim=0)[None]
-        angle = F.interpolate(angle, size=(H, W), mode="bilinear")
+        angle = torch.load(self.angle_file)[None]
+        # fov_up = self.fov_up / 180.0 * np.pi     
+        # fov_down = self.fov_down / 180.0 * np.pi  
+        # fov = abs(fov_down) + abs(fov_up)
+        # pitch = (1 - (torch.arange(H) / H)) * fov - abs(fov_down)
+        # # if self.has_rgb:
+        # #     yaw = (1 - (torch.arange(512) / 512) * 2) * (np.pi / 4)
+        # # else:
+        # yaw = (1 - (torch.arange(W) / W) * 2) * np.pi
+        # pitch_grid, yaw_grid = torch.meshgrid(pitch, yaw)
+        # angle = torch.stack([pitch_grid, yaw_grid], dim=0)[None]
+        angle = F.interpolate(angle, size=(self.height, self.width), mode="bilinear")
         return angle
 
 
 
-def range_image_to_point_cloud(depth_range, lidar_intensity, H, W):
-    # convert range to euclidean xyz
-    fov_up=3.0
-    fov_down=-25.0
-    fov_up = fov_up / 180.0 * np.pi      # field of view up in rad
-    fov_down = fov_down / 180.0 * np.pi  # field of view down in rad
-    fov = abs(fov_down) + abs(fov_up)  # get field of view total in rad
-    x, y = np.meshgrid(np.arange(0, W), np.arange(0, H))
-    x,y= x.astype('float'), y.astype('float')
-    x *= 1/W
-    y *= 1/H
-    yaw = np.pi*(x * 2 - 1)
-    pitch = (1.0 - y)*fov - abs(fov_down)
-    yaw = yaw.flatten()
-    pitch = pitch.flatten()
-    depth = depth_range.flatten()
-    
-    pts = np.zeros((len(yaw), 4))
-    pts[:, 0] =  np.cos(yaw) * np.cos(pitch) * depth
-    pts[:, 1] =  -np.sin(yaw) * np.cos(pitch) * depth
-    pts[:, 2] =  np.sin(pitch) * depth
-    if lidar_intensity is not None:
-        pts[:, 3] = lidar_intensity.flatten()
-    mask = np.logical_and(depth>0.5, depth < 63.0)
-
-    return pts, mask

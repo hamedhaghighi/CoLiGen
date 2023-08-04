@@ -18,6 +18,7 @@ import pathlib
 from dataset.kitti_odometry import KITTIOdometry
 from dataset.nuscene import NuScene
 from collections import namedtuple
+from util import make_class_from_dict
 
 def car2hom(pc):
     return np.concatenate([pc[:, :3], np.ones((pc.shape[0], 1), dtype=pc.dtype)], axis=-1)
@@ -133,7 +134,8 @@ def load_calib(root):
         return calib
 
 
-def process_point_clouds(point_path, H, W, dest_dir, calib=None, is_sorted=True):
+def process_point_clouds(point_path, H, W, dest_dir, calib=None, name=None):
+    is_sorted = name == 'kitti'
     def save_dir(x):
         prev_split = x.split(os.path.sep)
         seq_mode_filename = os.path.sep.join(prev_split[-4:])
@@ -143,10 +145,12 @@ def process_point_clouds(point_path, H, W, dest_dir, calib=None, is_sorted=True)
     # for semantic kitti
     label_path = point_path.replace("/velodyne", "/labels").replace(".bin", ".label")
     image_path = point_path.replace("/velodyne", "/image_2").replace(".bin", ".png")
+    tag_path = point_path.replace("/velodyne", "/tag").replace(".bin", ".tag")
     if osp.exists(label_path):
         label = np.fromfile(label_path, dtype=np.int32)
         sem_label = label & 0xFFFF 
-        sem_label = _map(sem_label, labelmap)
+        if name != 'semanticPOSS':
+            sem_label = _map(sem_label, labelmap)
         points = np.concatenate([points, sem_label.astype('float32')[:, None]], axis=1)
     if osp.exists(image_path):
         velo_to_camera_rect =calib.T_cam2_velo
@@ -154,7 +158,10 @@ def process_point_clouds(point_path, H, W, dest_dir, calib=None, is_sorted=True)
         rgb_image = np.array(Image.open(image_path))
         rgb = image_to_pcl(rgb_image, points, velo_to_camera_rect, cam_intrinsic)
         points = np.concatenate([points, rgb.astype('float32')], axis=1)
-    proj, _ = point_cloud_to_xyz_image(points, H, W, is_sorted=is_sorted)
+
+    
+    tag = np.fromfile(tag_path, dtype=np.bool) if osp.exists(tag_path) else None
+    proj, _ = point_cloud_to_xyz_image(points, H, W, is_sorted=is_sorted, tag=tag)
 
 
     save_path = save_dir(point_path).replace(".bin", ".npy")
@@ -210,7 +217,6 @@ def mean(tensor, dim):
 def compute_avg_angles(loader):
 
     max_depth = loader.dataset.max_depth
-
     summary = defaultdict(float)
 
     for item in tqdm(loader):
@@ -231,8 +237,8 @@ def compute_avg_angles(loader):
         summary["pitch"] += torch.sum(pitch * valid, dim=0)
         summary["yaw"] += torch.sum(yaw * valid, dim=0)
 
-    summary["pitch"] = summary["pitch"] / summary["total_valid"]
-    summary["yaw"] = summary["yaw"] / summary["total_valid"]
+    summary["pitch"] = summary["pitch"] / summary["total_valid"] 
+    summary["yaw"] = summary["yaw"] / summary["total_valid"] 
     angles = torch.cat([summary["pitch"], summary["yaw"]], dim=0)
 
     mean_pitch = mean(summary["pitch"], 2).expand_as(summary["pitch"])
@@ -255,73 +261,81 @@ if __name__ == "__main__":
     parser.add_argument("--root-dir", type=str, required=True)
     parser.add_argument("--dest-dir", type=str, required=True)
     parser.add_argument("--dataset-name", type=str, required=True)
+    parser.add_argument("--project", action='store_true')
     args = parser.parse_args()
-    if args.dataset_name == 'kitti' or args.dataset_name == 'carla':
-        calib = load_calib(osp.join(args.root_dir, "dataset/sequences"))
-        H, W =64, 2048
-        split_dirs = sorted(glob(osp.join(args.root_dir, "dataset/sequences", "*")))
-        for split_dir in tqdm(split_dirs):
-            point_paths = sorted(glob(osp.join(split_dir, "velodyne", "*.bin")))
+    DATA =  make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{args.dataset_name}_cfg.yml', 'r')))
+    H, W = DATA.height, DATA.width
+    if args.project:
+        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS']:
+            # calib = load_calib(osp.join(args.root_dir, "dataset/sequences"))
+            calib = None
+            # H, W = 64, 2048
+            split_dirs = sorted(glob(osp.join(args.root_dir, "dataset/sequences", "*")))
+            for split_dir in tqdm(split_dirs):
+                point_paths = sorted(glob(osp.join(split_dir, "velodyne", "*.bin")))
+                joblib.Parallel(
+                    n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
+                )(
+                    [
+                        joblib.delayed(process_point_clouds)(point_path, H, W, args.dest_dir, calib, args.dataset_name)
+                        for point_path in point_paths
+                    ]
+                )
+            
+         
+
+        elif args.dataset_name == 'nuscene':
+            nusc = NuScenes(version = 'v1.0-mini', dataroot = args.root_dir, verbose = True)
+            datalist = []
+            labels_list=[]
+            for i in range(len(nusc.sample)):
+                sample = nusc.sample[i]
+                sample_data_token = sample['data']['LIDAR_TOP']
+                sample_path = nusc.get_sample_data_path(sample_data_token)
+                label_path = (pathlib.Path(nusc.dataroot) / nusc.get("lidarseg", sample_data_token)["filename"])
+                datalist.append(sample_path)
+                labels_list.append(label_path)
             joblib.Parallel(
                 n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
             )(
                 [
-                    joblib.delayed(process_point_clouds)(point_path, H, W, args.dest_dir, calib, args.dataset_name == 'kitti')
-                    for point_path in point_paths
+                    joblib.delayed(process_nucs_point_clouds)(point_path, label_path, H, W)
+                    for point_path, label_path in zip(datalist, labels_list)
                 ]
-            )
-        dataset = KITTIOdometry(
-        args.root_dir,
-        'train',
-        None,
-        shape=(64, 2048),
-        flip=False,
-        modality=['depth'],
-        is_sorted=True,
-        is_raw=True,
-        fill_in_label=False)
+            ) 
+    else:
+        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS']:
+            dataset = KITTIOdometry(
+            args.root_dir,
+            'train',
+            DATA,
+            shape=(H, W),
+            flip=False,
+            modality=['depth'],
+            fill_in_label=False,
+            name = args.dataset_name,
+            limited_view=False)
+        else:
+            dataset = NuScene(
+            args.root_dir,
+            'train',
+            None,
+            shape=(32, 1024),
+            flip=False,
+            modality=['depth'],
+            is_sorted=False,
+            is_raw=True,
+            fill_in_label=False)
 
-    elif args.dataset_name == 'nuscene':
-        H, W = 32, 1024
-        nusc = NuScenes(version = 'v1.0-mini', dataroot = args.root_dir, verbose = True)
-        datalist = []
-        labels_list=[]
-        for i in range(len(nusc.sample)):
-            sample = nusc.sample[i]
-            sample_data_token = sample['data']['LIDAR_TOP']
-            sample_path = nusc.get_sample_data_path(sample_data_token)
-            label_path = (pathlib.Path(nusc.dataroot) / nusc.get("lidarseg", sample_data_token)["filename"])
-            datalist.append(sample_path)
-            labels_list.append(label_path)
-        joblib.Parallel(
-            n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
-        )(
-            [
-                joblib.delayed(process_nucs_point_clouds)(point_path, label_path, H, W)
-                for point_path, label_path in zip(datalist, labels_list)
-            ]
+        loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=64,
+            num_workers=4,
+            drop_last=False,
         )
-        dataset = NuScene(
-        args.root_dir,
-        'train',
-        None,
-        shape=(32, 1024),
-        flip=False,
-        modality=['depth'],
-        is_sorted=False,
-        is_raw=True,
-        fill_in_label=False)
+        # N = len(dataset)
 
-
-    loader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=64,
-        num_workers=4,
-        drop_last=False,
-    )
-    # N = len(dataset)
-
-    # angles, valid = compute_avg_angles(loader)
-    # torch.save(angles, osp.join(args.root_dir, "angles.pt"))
+        angles, valid = compute_avg_angles(loader)
+        torch.save(angles, osp.join(args.root_dir, "angles.pt"))
     # torch.save(angles, osp.join(args.root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg'), "angles.pt"))
 

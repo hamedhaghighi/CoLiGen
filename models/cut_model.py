@@ -17,11 +17,12 @@ from itertools import chain
 from rangenet.tasks.semantic.modules.segmentator import *
 
 class CUTModel(BaseModel):
-    def __init__(self, opt, lidar):
+    def __init__(self, opt, lidar_A, lidar_B):
         BaseModel.__init__(self, opt)
         opt_m = opt.model
         opt_t = opt.training
-        self.lidar = lidar
+        self.lidar_A = lidar_A
+        self.lidar_B = lidar_B
         if self.isTrain:
             self.model_names = ['G', 'D']
         else:
@@ -49,6 +50,7 @@ class CUTModel(BaseModel):
             self.visual_names.append('real_B_' + m)
         for m in opt_m.modality_cond:
             self.visual_names.append('real_' + m)
+            self.visual_names.append('real_B_' + m)
         cond_nc_g = np.array([m2ch[m] for m in opt_m.modality_cond]).sum() if len(opt_m.modality_cond) > 0 else None
         input_nc_G = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
         output_nc_G = np.array([m2ch[m] for m in opt_m.out_ch]).sum()
@@ -102,8 +104,8 @@ class CUTModel(BaseModel):
                 self.optimizers.append(self.optimizer_F_feat)
 
     def set_input(self, input):
-        data_A = fetch_reals(input['A'], self.lidar, self.device)
-        data_B = fetch_reals(input['B'], self.lidar, self.device)
+        data_A = fetch_reals(input['A'], self.lidar_A, self.device)
+        data_B = fetch_reals(input['B'], self.lidar_B, self.device)
         for k, v in data_A.items():
             setattr(self, 'real_' + k, v)
         for k, v in data_B.items():
@@ -168,8 +170,8 @@ class CUTModel(BaseModel):
         if self.opt.model.lambda_NCE > 0.0:
             self.loss_NCE_pix = self.calculate_NCE_loss(self.real_A, self.fake_B)
         if self.opt.model.lambda_NCE_feat > 0.0:
-            src_vol = prepare_data_for_seg(self.data_A, self.lidar)
-            tgt_vol = prepare_synth_for_seg(self, self.lidar)
+            src_vol = prepare_data_for_seg(self.data_A, self.lidar_A)
+            tgt_vol = prepare_synth_for_seg(self, self.lidar_B)
             self.loss_NCE_feat = self.calculate_NCE_feat_loss(src_vol, tgt_vol)
             
         loss_NCE_both_pix, loss_NCE_both_feat = self.loss_NCE_pix, self.loss_NCE_feat
@@ -178,8 +180,8 @@ class CUTModel(BaseModel):
             self.loss_NCE_Y_pix = self.calculate_NCE_loss(self.real_B_mod_A, self.idt_B)
             loss_NCE_both_pix = (loss_NCE_both_pix + self.loss_NCE_Y_pix) * 0.5
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE_feat > 0.0:
-            src_vol = prepare_data_for_seg(self.data_B, self.lidar)
-            tgt_vol = prepare_synth_for_seg(self, self.lidar, 'synth_idt_B')
+            src_vol = prepare_data_for_seg(self.data_B, self.lidar_B)
+            tgt_vol = prepare_synth_for_seg(self, self.lidar_B, 'synth_idt_B')
             self.loss_NCE_Y_feat = self.calculate_NCE_feat_loss(src_vol, tgt_vol)
             loss_NCE_both_feat = (loss_NCE_both_feat + self.loss_NCE_Y_feat) * 0.5
 

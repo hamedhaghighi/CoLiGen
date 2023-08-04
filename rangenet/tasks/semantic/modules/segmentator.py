@@ -18,8 +18,8 @@ class Segmentator(nn.Module):
     path = os.path.join('rangenet', 'rangenet_weights')
     self.ARCH = yaml.safe_load(open('configs/arch_cfg.yaml', 'r'))
     self.DATA = yaml.safe_load(open('configs/data_cfg.yaml', 'r'))
-    self.sensor_img_means = torch.tensor(self.ARCH["dataset"]["sensor"]["img_means"], dtype=torch.float)
-    self.sensor_img_stds = torch.tensor(self.ARCH["dataset"]["sensor"]["img_stds"], dtype=torch.float)
+    self.sensor_img_means = torch.tensor(self.DATA["sensor"]["img_means"], dtype=torch.float)
+    self.sensor_img_stds = torch.tensor(self.DATA["sensor"]["img_stds"], dtype=torch.float)
     self.nclasses = len(self.DATA["learning_map_inv"])
     self.strict = False
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,8 +34,8 @@ class Segmentator(nn.Module):
     # do a pass of the backbone to initialize the skip connections
     stub = torch.zeros((1,
                         self.backbone.get_input_depth(),
-                        self.ARCH["dataset"]["sensor"]["img_prop"]["height"],
-                        self.ARCH["dataset"]["sensor"]["img_prop"]["width"]))
+                        self.DATA["sensor"]["img_prop"]["height"],
+                        self.DATA["sensor"]["img_prop"]["width"]))
 
     if torch.cuda.is_available():
       stub = stub.cuda()

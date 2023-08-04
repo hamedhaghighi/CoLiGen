@@ -15,34 +15,6 @@ from scipy import ndimage as nd
 from collections import namedtuple
 import torchvision.transforms as transforms
 
-CONFIG = {
-    "split": {
-        "train": [0, 1, 2, 3, 4, 5, 6, 7, 9, 10],
-        "val": [8],
-        "test": [8],
-        "synthlidar": [9],
-
-    },
-}
-CONFIG_CARLA = {
-    "split": {
-        "train": [0, 1, 2, 3, 4, 6, 10],
-        "val": [5],
-        "test": [5]
-    },
-}
- 
-CONFIG_SEMANTICPOSS = {
-    "split": {
-        "train": [0, 1, 2, 3, 4],
-        "val": [5],
-        "test": [5]
-    },
-}
-
-MIN_DEPTH = 0.9
-MAX_DEPTH = 120.0
-
 
 def car2hom(pc):
     return np.concatenate([pc[:, :3], np.ones((pc.shape[0], 1), dtype=pc.dtype)], axis=-1)
@@ -56,33 +28,23 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         shape=(64, 256),
         flip=False,
         modality=("depth"),
-        is_sorted=True,
-        is_raw=True,
         fill_in_label=False,
         name='kitti', 
         limited_view=False,
         finesize=None):
         super().__init__()
         self.root = osp.join(root, "sequences")
-        self.split = split
-        if name == 'carla':
-            self.config = CONFIG_CARLA
-        elif name == 'semanticPOSS':
-            self.config = CONFIG_SEMANTICPOSS
-        else:
-            self.config = CONFIG
-        self.subsets = np.asarray(self.config["split"][split])
+        self.subsets = np.asarray(getattr(DATA.split, split))
         self.shape = tuple(shape)
-        self.min_depth = MIN_DEPTH
-        self.max_depth = MAX_DEPTH
+        self.min_depth = DATA.min_depth
+        self.max_depth = DATA.max_depth
         self.flip = flip
         assert "depth" in modality, '"depth" is required'
         self.modality = modality
-        self.return_remission = 'reflectance' in self.modality
         self.datalist = None
-        self.is_sorted = is_sorted
-        self.is_raw = is_raw
         self.DATA = DATA
+        self.is_sorted = DATA.is_sorted
+        self.is_raw = DATA.is_raw
         self.fill_in_label = fill_in_label
         self.name = name
         self.has_rgb = 'rgb' in modality
@@ -174,11 +136,11 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             sub_point_paths = sorted(glob(osp.join(subset_dir, "velodyne/*")))
             datalist += list(sub_point_paths)
         self.datalist = datalist
-    
         if self.has_label:
             self.label_list = [d.replace('velodyne', 'labels').replace('bin' if self.is_raw else 'npy', 'label' if self.is_raw else 'png') for d in self.datalist]
         if self.has_rgb:
             self.rgb_list = [d.replace('velodyne', 'image_2').replace('bin' if self.is_raw else 'npy', 'png') for d in self.datalist]
+        self.tag_list = [d.replace('velodyne', 'tag').replace('bin', 'tag') for d in self.datalist] if self.name == 'semanticPOSS' and self.is_raw else None
 
     def preprocess(self, out):
         out["depth"] = np.linalg.norm(out["points"], ord=2, axis=2)
@@ -244,6 +206,8 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             if self.has_label:
                 labels_path = self.label_list[index]
                 sem_label = np.array(Image.open(labels_path))
+                if self.name == 'semanticPOSS':
+                    sem_label = _map(sem_label, self.DATA.learning_map)
                 sem_label = _map(sem_label, self.DATA.m_learning_map)
                 points = np.concatenate([points, sem_label.astype('float32')[..., None]], axis=-1)
             if self.has_rgb:
@@ -271,18 +235,16 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                 rgb_image = np.array(Image.open(rgb_path))
                 rgb = self.image_to_pcl(rgb_image, point_cloud)
                 point_cloud = np.concatenate([point_cloud, rgb.astype('float32')], axis=1)
-            if self.name in ['kitti', 'carla']: 
-                H, W =64, 2048
-            elif self.name == 'synthlidar':
-                H, W = 64, 1570
-            elif self.name == 'semanticPOSS':
-                H, W = 40, 1800
-            points, _ = point_cloud_to_xyz_image(point_cloud, H=H, W=W, is_sorted=self.is_sorted, limited_view=self.limited_view)
+            H , W = self.DATA.height, self.DATA.width
+            fov_up, fov_down = self.DATA.fov_up, self.DATA.fov_down
+            
+            tag = np.fromfile(self.tag_list[index], dtype = np.bool) if self.tag_list is not None else None
+            points, _ = point_cloud_to_xyz_image(point_cloud, H=H, W=W, fov_down=fov_down, fov_up=fov_up, is_sorted=self.is_sorted, limited_view=self.limited_view, tag=tag)
             
         out = {}
         out["points"] = points[..., :3]
         if "reflectance" in self.modality:
-            out["reflectance"] = points[..., [3]]
+            out["reflectance"] = points[..., [3]]/255.0 if self.name == 'semanticPOSS' else points[..., [3]]
         if "label" in self.modality:
             out["label"] = points[..., [4]]
         if self.has_rgb:

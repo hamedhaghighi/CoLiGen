@@ -155,16 +155,23 @@ def main(runner_cfg_path=None):
         if not hasattr(opt.dataset.dataset_B, 'data_dir'):
             ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{opt.dataset.dataset_B.name}_cfg.yml', 'r')))
             opt.dataset.dataset_B.data_dir = ds_cfg_B.data_dir
-    lidar = LiDAR(
-    num_ring=opt.dataset.dataset_A.img_prop.height,
-    num_points=opt.dataset.dataset_A.img_prop.width,
-    angle_file=os.path.join(opt.dataset.dataset_A.data_dir, "angles.pt"),
-    min_depth=ds_cfg.min_depth,
-    max_depth=ds_cfg.max_depth,
-    has_rgb = 'rgb' in opt.model.modality_A or 'rgb' in opt.model.modality_B
-    )
-    lidar.to(device)
-    visualizer = Visualizer(opt.training, lidar, dataset_name=opt.dataset.dataset_A.name)   # create a visualizer that display/save images and plots
+    ds_cfg_ref = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{cl_args.ref_dataset_name}_cfg.yml', 'r')))
+    
+    lidar_A = LiDAR(
+    cfg=ds_cfg,
+    height=opt.dataset.dataset_A.img_prop.height,
+    width=opt.dataset.dataset_A.img_prop.width).to(device)
+    lidar_B = LiDAR(
+    cfg=ds_cfg_B,
+    height=opt.dataset.dataset_B.img_prop.height,
+    width=opt.dataset.dataset_B.img_prop.width,
+   ).to(device) if is_two_dataset else None
+    lidar_ref = LiDAR(
+    cfg=ds_cfg_ref,
+    height=opt.dataset.dataset_B.img_prop.height,
+    width=opt.dataset.dataset_B.img_prop.width).to(device)
+    lidar = lidar_B if is_two_dataset else lidar_ref
+    visualizer = Visualizer(opt.training)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_fid = 10000
     
@@ -174,12 +181,12 @@ def main(runner_cfg_path=None):
     test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
     with torch.no_grad():
         seg_model = Segmentator().to(device)
-    model = create_model(opt, lidar)      # create a model given opt.model and other options
+    model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut
     train_dl_iter = iter(train_dl); data = next(train_dl_iter); model.data_dependent_initialize(data)
     model.setup(opt.training)
-    fid_cls = FID(seg_model, train_dataset, cl_args.ref_dataset_name, lidar) if cl_args.ref_dataset_name!= '' else None
+    fid_cls = FID(seg_model, train_dataset, cl_args.ref_dataset_name, lidar_A) if cl_args.ref_dataset_name!= '' else None
     n_test_batch = 2 if cl_args.fast_test else  len(test_dl)
     test_dl_iter = iter(test_dl)
     data_dict = defaultdict(list)
@@ -187,9 +194,9 @@ def main(runner_cfg_path=None):
     test_tq = tqdm.tqdm(total=n_test_batch, desc='real_data', position=5)
     for i in range(0, N, opt.training.batch_size):
         data = next(test_dl_iter)
-        data = fetch_reals(data, lidar, device)
+        data = fetch_reals(data, lidar_ref, device)
         data_dict['real-2d'].append(data['inv'])
-        data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar))
+        data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar_ref))
         test_tq.update(1)
     epoch_tq = tqdm.tqdm(total=opt.training.n_epochs, desc='Epoch', position=1)
     start_from_epoch = model.schedulers[0].last_epoch if opt.training.continue_train else 0 
@@ -201,7 +208,6 @@ def main(runner_cfg_path=None):
         e_steps = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
         # Train loop
         if opt.training.isTrain:
-            visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
             model.train(True)
             train_dl_iter = iter(train_dl)
             n_train_batch = 2 if cl_args.fast_test else len(train_dl)
@@ -223,9 +229,13 @@ def main(runner_cfg_path=None):
                 #     model.data_dependent_initialize(data)
                 model.set_input(data)         # unpack data from dataset and apply preprocessing
                 model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
-
                 if g_steps % opt.training.display_freq == 0:   # display images on visdom and save images to a HTML file
-                    visualizer.display_current_results('train', model.get_current_visuals(), g_steps, ds_cfg)
+                    current_visuals = model.get_current_visuals()
+                    if is_two_dataset:
+                        visualizer.display_current_results('train',current_visuals, g_steps,ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_B,\
+                             opt.dataset.dataset_B.name,lidar_B)
+                    else:
+                        visualizer.display_current_results('train',current_visuals, g_steps,ds_cfg, opt.dataset.dataset_A.name, lidar_A)
 
                 if g_steps % opt.training.print_freq == 0:    # print training losses and save logging information to the disk
                     losses = model.get_current_losses()
@@ -253,9 +263,9 @@ def main(runner_cfg_path=None):
             data = next(val_dl_iter)
             model.set_input(data)
             with torch.no_grad():
-                model.calc_supervised_metrics(cl_args.no_inv)
+                model.calc_supervised_metrics(cl_args.no_inv, lidar_A, lidar)
             
-            fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar, device)
+            fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar_A, device)
             if cl_args.on_input:
                 assert is_two_dataset == False
                 if 'inv' in fetched_data:
@@ -289,8 +299,12 @@ def main(runner_cfg_path=None):
                     m_acc_list.append(m_acc.cpu().numpy())
 
             if i == dis_batch_ind:
-                vis_dict = model.get_current_visuals()
-                visualizer.display_current_results(tag, vis_dict, g_steps, ds_cfg)
+                current_visuals = model.get_current_visuals()
+                if is_two_dataset:
+                    visualizer.display_current_results(tag, current_visuals, g_steps, ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_B,\
+                            opt.dataset.dataset_B.name, lidar_B)
+                else:
+                    visualizer.display_current_results(tag, current_visuals, g_steps, ds_cfg, opt.dataset.dataset_A.name, lidar_A)
 
             for k ,v in model.get_current_losses(is_eval=True).items():
                 val_losses[k].append(v)

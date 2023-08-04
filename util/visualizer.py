@@ -26,7 +26,6 @@ def visualize_tensor(pts, depth):
 
     # depth_range = np.exp2(lidar_range*6)-1
     color = plt.cm.viridis(np.clip(depth, 0, 1).flatten())
-    # pts, mask = range_image_to_point_cloud(depth, intensity, H, W)
     # mask out invalid points
     xyz = pts
     color = color[..., :3]
@@ -91,7 +90,7 @@ class Visualizer():
     It uses a Python library 'visdom' for display, and a Python library 'dominate' (wrapped in 'HTML') for creating HTML files with images.
     """
 
-    def __init__(self, opt, lidar, dataset_name='kitti'):
+    def __init__(self, opt):
         """Initialize the Visualizer class
 
         Parameters:
@@ -101,8 +100,6 @@ class Visualizer():
         Step 3: create an HTML object for saveing HTML filters
         Step 4: create a logging file to store training losses
         """
-        self.lidar = lidar
-        self.dataset_name = dataset_name
         self.opt = opt
         exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
 
@@ -114,9 +111,6 @@ class Visualizer():
             now = time.strftime("%c")
             log_file.write('================ Training Loss (%s) ================\n' % now)
 
-    def reset(self):
-        """Reset the self.saved status"""
-        self.saved = False
 
     def log_imgs(self, tensor, tag, step, color=True, cmap='turbo'):
         B = tensor.shape[0]
@@ -130,21 +124,32 @@ class Visualizer():
             grid = grid.astype(np.uint8)
         self.writer.add_image(tag, grid, step)
 
-    def display_current_results(self, phase, visuals, g_step, data_maps):
-        visuals = postprocess(visuals, self.lidar, data_maps=data_maps, dataset_name=self.dataset_name)
-        for k , v in visuals.items():
-            if 'points' in k:
-                points = flatten(v)
-                inv = visuals[k.replace('points', 'inv')]
-                image_list = []
-                for i in range(points.shape[0]):
-                    _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5)
-                    image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
-                visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
-        for k , img_tensor in visuals.items():
-            color = False if ('points' in k or 'label' in k or 'rgb' in k) else True
-            cmap = 'viridis' if ('reflectance' in k) else 'turbo'
-            self.log_imgs(img_tensor, phase + '/' + k, g_step, color, cmap)
+    def display_current_results(self, phase, current_visuals, g_step, data_maps_A,\
+         dataset_name_A,lidar_A, data_maps_B=None, dataset_name_B=None, lidar_B=None):
+
+        def display_domain_visuals(visuals, g_step, data_maps, lidar, dataset_name):
+            visuals = postprocess(visuals, lidar, data_maps=data_maps, dataset_name=dataset_name)
+            for k , v in visuals.items():
+                if 'points' in k:
+                    points = flatten(v)
+                    inv = visuals[k.replace('points', 'inv')]
+                    image_list = []
+                    for i in range(points.shape[0]):
+                        _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5)
+                        image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
+                    visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
+            for k , img_tensor in visuals.items():
+                color = False if ('points' in k or 'label' in k or 'rgb' in k) else True
+                cmap = 'viridis' if ('reflectance' in k) else 'turbo'
+                self.log_imgs(img_tensor, phase + '/' + k, g_step, color, cmap)
+        if lidar_B is not None:
+            domain_A_keys = [k for k in list(current_visuals.keys()) if not 'B' in k and not 'synth' in k]
+            domain_B_keys = [k for k in list(current_visuals.keys()) if k not in domain_A_keys]
+            visual_A, visual_B = {k:current_visuals[k] for k in domain_A_keys}, {k:current_visuals[k] for k in domain_B_keys}
+            display_domain_visuals(visual_A, g_step, data_maps_A, lidar_A, dataset_name_A)
+            display_domain_visuals(visual_B, g_step, data_maps_B, lidar_B, dataset_name_B)
+        else:
+            display_domain_visuals(visual_A, g_step, data_maps_A, lidar_A, dataset_name_A)
 
     def plot_current_losses(self, phase, epoch, losses, g_step):
         """display the current losses on visdom display: dictionary of error labels and values

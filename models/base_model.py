@@ -89,14 +89,14 @@ class BaseModel(ABC):
     def set_seg_model(self, model):
         pass
     
-    def calc_supervised_metrics(self, no_inv):
+    def calc_supervised_metrics(self, no_inv, lidar_A, lidar_B):
         self.forward()
         synth_inv = self.real_inv * self.synth_mask if no_inv else self.synth_inv
-        points_gen = self.lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv))
+        points_gen = lidar_B.inv_to_xyz(tanh_to_sigmoid(synth_inv))
         points_gen = flatten(points_gen)
         points_ref = flatten(self.real_points)
-        depth_ref = self.lidar.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
-        depth_gen = self.lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
+        depth_ref = lidar_A.revert_depth(tanh_to_sigmoid(self.real_inv), norm=False)
+        depth_gen = lidar_B.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
         self.cd = compute_cd(points_ref, points_gen).mean().item()
         accuracies = compute_depth_accuracy(depth_ref, depth_gen)
         self.depth_accuracies = {'depth/' + k: v.mean().item() for k ,v in accuracies.items()}
