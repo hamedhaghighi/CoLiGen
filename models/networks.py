@@ -26,6 +26,14 @@ def disentangle_output(output, out_ch, gumbel, out_modality):
         if 'reflectance' in output_dict:
             r = torch.tanh(output_dict['reflectance'])
             output_dict['reflectance'] = mask * r + (1 - mask) * -1
+    else:
+        if 'inv' in output_dict:
+            inv = torch.tanh(output_dict['inv'])
+            output_dict['inv'] = inv
+        if 'reflectance' in output_dict:
+            r = torch.tanh(output_dict['reflectance'])
+            output_dict['reflectance'] = r
+        output_dict['mask'] = 1 - (inv <= -0.9).float()
     out_list = []
     for m in out_modality:
         out_list.append(output_dict[m])
