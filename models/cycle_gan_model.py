@@ -14,11 +14,12 @@ import math
 import sys
 
 class CycleGANModel(BaseModel):
-    def __init__(self, opt, lidar):
+    def __init__(self, opt, lidar_A, lidar_B):
         BaseModel.__init__(self, opt)
         opt_m = opt.model
         opt_t = opt.training
-        self.lidar = lidar
+        self.lidar_A = lidar_A
+        self.lidar_B = lidar_B
         if self.isTrain:
             self.model_names = ['G_A', 'G_B', 'D_A', 'D_B']
         else:
@@ -78,8 +79,8 @@ class CycleGANModel(BaseModel):
         return
 
     def set_input(self, input):
-        data_A = fetch_reals(input['A'], self.lidar, self.device)
-        data_B = fetch_reals(input['B'], self.lidar, self.device)
+        data_A = fetch_reals(input['A'], self.lidar_A, self.device)
+        data_B = fetch_reals(input['B'], self.lidar_B, self.device)
         for k, v in data_A.items():
             setattr(self, 'real_' + k, v)
         for k, v in data_B.items():

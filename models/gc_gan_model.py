@@ -14,11 +14,12 @@ import math
 import sys
 
 class GcGANModel(BaseModel):
-    def __init__(self, opt, lidar):
+    def __init__(self, opt, lidar_A, lidar_B):
         BaseModel.__init__(self, opt)
         opt_m = opt.model
         opt_t = opt.training
-        self.lidar = lidar
+        self.lidar_A = lidar_A
+        self.lidar_B = lidar_B
         if self.isTrain:
             self.model_names = ['G_AB', 'G_gc_AB'] if 'cross' in opt_m.name else ['G_AB']
         else:
@@ -77,12 +78,14 @@ class GcGANModel(BaseModel):
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D_B)
 
+    def set_seg_model(self, model):
+        return
     def data_dependent_initialize(self, data):
         return
 
     def set_input(self, input):
-        data_A = fetch_reals(input['A'], self.lidar, self.device)
-        data_B = fetch_reals(input['B'], self.lidar, self.device)
+        data_A = fetch_reals(input['A'], self.lidar_A, self.device)
+        data_B = fetch_reals(input['B'], self.lidar_B, self.device)
         for k, v in data_A.items():
             setattr(self, 'real_' + k, v)
         for k, v in data_B.items():

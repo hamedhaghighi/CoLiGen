@@ -248,7 +248,10 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         if "label" in self.modality:
             out["label"] = points[..., [4]]
         if self.has_rgb:
-            out["rgb"] = points[..., -3:]/ 255.0
+            out["rgb"] = points[..., -3:]/ 255.0 # h,w, c
+            black_pos = (out["rgb"] == 0.0).all(2)
+            avg_color = np.mean(out["rgb"][~black_pos], axis=0)
+            out["rgb"][black_pos] = avg_color
         out = self.preprocess(out)
         out = self.transform(out)
         return out

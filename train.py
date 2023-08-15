@@ -73,7 +73,8 @@ def check_exp_exists(opt, cfg_args):
     opt_m = opt.model
     opt_d = opt.dataset.dataset_A
     modality_A = '_'.join(opt_m.modality_A)
-    cond_modality = '_'.join(opt_m.modality_cond)
+    if hasattr(opt_m, 'modality_cond'):
+        cond_modality = '_'.join(opt_m.modality_cond)
     out_ch = '_'.join(opt_m.out_ch)
     if cfg_args.load != '':
         # opt_t.name = cfg_path.split(os.sep)[1]
