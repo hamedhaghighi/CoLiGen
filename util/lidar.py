@@ -223,7 +223,7 @@ class LiDAR(Coordinate):
     ):
         num_ring, num_points = cfg.height, cfg.width
         min_depth, max_depth = cfg.min_depth, cfg.max_depth
-        angle_dir = lambda dir: os.path.join(os.path.sep.join(dir.split(os.path.sep)[:-2]),'angles.pt')
+        angle_dir = lambda dir: os.path.join(os.path.sep.join(dir.split(os.path.sep)[:-1]),'angles.pt')
         self.angle_file = angle_dir(cfg.data_dir)
         assert os.path.exists(self.angle_file), self.angle_file
         self.fov_down = cfg.fov_down
