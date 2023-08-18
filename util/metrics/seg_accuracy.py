@@ -1,11 +1,11 @@
 import numpy as np
 from rangenet.tasks.semantic.modules.ioueval import iouEval
 
-def compute_seg_accuracy(seg_model, synth_data, gt_labels):
+def compute_seg_accuracy(seg_model, synth_data, gt_labels, ignore=[]):
     pred, _ = seg_model(synth_data)
     pred = pred.argmax(dim=1)
     gt_labels = gt_labels.long()
-    eval = iouEval(seg_model.nclasses, pred.get_device(), ignore=[])
+    eval = iouEval(seg_model.nclasses, pred.get_device(), ignore=ignore)
     eval.addBatch(pred, gt_labels)
     _, iou = eval.getIoU()
     m_acc = eval.getacc()

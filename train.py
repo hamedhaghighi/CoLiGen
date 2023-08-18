@@ -175,7 +175,7 @@ def main(runner_cfg_path=None):
     visualizer = Visualizer(opt.training)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_fid = 10000
-    
+    ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
 
     train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size)
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False)  
@@ -295,7 +295,7 @@ def main(runner_cfg_path=None):
                 synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
                 fid_samples.append(synth_data)
                 if not opt.training.isTrain:
-                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data, fetched_data['label'])
+                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data, fetched_data['label'], ignore=ignore_label)
                     iou_list.append(iou.cpu().numpy())
                     m_acc_list.append(m_acc.cpu().numpy())
 
@@ -317,10 +317,12 @@ def main(runner_cfg_path=None):
             print('avg seg acc:', avg_m_acc)
             print('iou avg:')
             print_str = ''
+            cross_class_iou_avg = iou_avg[iou_avg != 0.0].mean()
             for l, iou in zip(label_names, iou_avg):
-                print_str = print_str + f'{l}:{iou} '
+                if iou > 0.0:
+                    print_str = print_str + f'{l}:{np.round(np.iou)} '
             print(print_str)
-
+            print('cross-class iou:', cross_class_iou_avg)
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}
         visualizer.plot_current_losses(tag, epoch, losses, g_steps)
         visualizer.print_current_losses(tag, epoch, e_steps, losses, val_tq)
