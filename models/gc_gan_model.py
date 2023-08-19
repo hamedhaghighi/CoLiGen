@@ -29,12 +29,8 @@ class GcGANModel(BaseModel):
         if self.opt.model.identity > 0.0:
             self.loss_names.extend(['idt', 'idt_gc'])
 
-        self.visual_names = []
-        for m in opt_m.modality_A:
-            self.visual_names.append('real_' + m)
         for m in opt_m.modality_B:
             self.visual_names.append('synth_' + m)
-            self.visual_names.append('real_B_' + m)
         
         input_nc_G = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
         output_nc_G = np.array([m2ch[m] for m in opt_m.out_ch]).sum()

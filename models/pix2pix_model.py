@@ -36,11 +36,10 @@ class Pix2PixModel(BaseModel):
         
         opt_m = opt.model
         opt_t = opt.training
-        self.visual_names = []
         self.eval_metrics = ['cd', 'depth_accuracies', 'depth_errors'] 
         
         if 'inv' in opt_m.modality_B:
-            self.visual_names.extend(['synth_inv', 'real_inv', 'synth_inv_orig', 'real_label', 'synth_mask', 'real_mask'])
+            self.visual_names.extend(['synth_inv', 'synth_inv_orig', 'synth_mask'])
         if 'reflectance' in opt_m.modality_B:
             self.visual_names.extend(['real_reflectance', 'synth_reflectance'])
             self.eval_metrics.append('reflectance_errors')

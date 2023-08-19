@@ -29,12 +29,8 @@ class CycleGANModel(BaseModel):
         if self.opt.model.lambda_idt > 0.0:
             self.loss_names.extend(['idt_A', 'idt_B'])
 
-        self.visual_names = []
-        for m in opt_m.modality_A:
-            self.visual_names.append('real_' + m)
         for m in opt_m.modality_B:
             self.visual_names.append('synth_' + m)
-            self.visual_names.append('real_B_' + m)
         
         input_nc_G_A = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
         input_nc_G_B = np.array([m2ch[m] for m in opt_m.modality_B]).sum()

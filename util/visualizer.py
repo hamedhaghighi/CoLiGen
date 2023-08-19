@@ -16,6 +16,7 @@ import open3d.visualization.rendering as rendering
 import torch
 from glob import glob
 import yaml
+from PIL import Image
 
 if sys.version_info[0] == 2:
     VisdomExceptionBase = Exception
@@ -101,9 +102,9 @@ class Visualizer():
         Step 4: create a logging file to store training losses
         """
         self.opt = opt
-        exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
+        self.exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
 
-        self.tb_dir = os.path.join(exp_dir +('/TB/' if opt.isTrain else '/TB_test/'), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        self.tb_dir = os.path.join(self.exp_dir +('/TB/' if opt.isTrain else '/TB_test/'), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         os.makedirs(self.tb_dir, exist_ok=True)
         self.writer = SummaryWriter(self.tb_dir)
         self.log_name = os.path.join(self.tb_dir , 'loss_log.txt')
@@ -112,7 +113,7 @@ class Visualizer():
             log_file.write('================ Training Loss (%s) ================\n' % now)
 
 
-    def log_imgs(self, tensor, tag, step, color=True, cmap='turbo'):
+    def log_imgs(self, tensor, tag, step, color=True, cmap='turbo', save_img=False):
         B = tensor.shape[0]
         nrow = 4 if B > 8 else 1
         grid = make_grid(tensor.detach(), nrow=nrow)
@@ -122,11 +123,18 @@ class Visualizer():
             grid = colorize(grid, cmap=cmap).transpose(2, 0, 1)  # CHW
         else:
             grid = grid.astype(np.uint8)
-        self.writer.add_image(tag, grid, step)
+        if save_img:
+            if grid.max() <= 1.0:
+                grid = grid * 255.0
+            im_grid = Image.fromarray(grid.transpose(1,2,0).astype(np.uint8))
+            img_folder_dir = os.path.join(self.exp_dir,'TB', 'img_results', 'seq_' + str(step[0]).zfill(2) + '_id_' + str(step[1]).zfill(6))
+            os.makedirs(img_folder_dir, exist_ok=True)
+            im_grid.save(os.path.join(img_folder_dir, tag.replace('/', '_') + '.png'))
+        else:
+            self.writer.add_image(tag, grid, step)
 
     def display_current_results(self, phase, current_visuals, g_step, data_maps_A,\
-         dataset_name_A,lidar_A, data_maps_B=None, dataset_name_B=None, lidar_B=None):
-
+         dataset_name_A,lidar_A, data_maps_B=None, dataset_name_B=None, lidar_B=None, save_img=False):
         def display_domain_visuals(visuals, g_step, data_maps, lidar, dataset_name):
             visuals = postprocess(visuals, lidar, data_maps=data_maps, dataset_name=dataset_name)
             for k , v in visuals.items():
@@ -139,9 +147,9 @@ class Visualizer():
                         image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
                     visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
             for k , img_tensor in visuals.items():
-                color = False if ('points' in k or 'label' in k or 'rgb' in k) else True
-                cmap = 'viridis' if ('reflectance' in k) else 'turbo'
-                self.log_imgs(img_tensor, phase + '/' + k, g_step, color, cmap)
+                colorise = False if  any([k_ in k for k_ in ['points', 'label', 'rgb']]) else True
+                cmap = 'viridis' if ('reflectance' in k) else ('gray' if 'mask' in k else 'turbo')
+                self.log_imgs(img_tensor, phase + '/' + k, g_step, colorise, cmap, save_img)
         if lidar_B is not None:
             domain_A_keys = [k for k in list(current_visuals.keys()) if not 'B' in k and not 'synth' in k]
             domain_B_keys = [k for k in list(current_visuals.keys()) if k not in domain_A_keys]

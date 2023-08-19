@@ -268,7 +268,7 @@ def main(runner_cfg_path=None):
             
             fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar_A, device)
             if cl_args.on_input:
-                assert is_two_dataset == False
+                # assert is_two_dataset == False
                 if 'inv' in fetched_data:
                     synth_inv = fetched_data['inv']
                 if 'reflectance' in fetched_data:
@@ -314,15 +314,15 @@ def main(runner_cfg_path=None):
             avg_m_acc = np.array(m_acc_list).mean()
             iou_avg = np.array(iou_list).mean(axis=0)
             label_names = seg_model.learning_class_to_label_name(np.arange(len(iou_avg)))
-            print('avg seg acc:', avg_m_acc)
+            print('avg seg acc:', np.round(avg_m_acc, 2))
             print('iou avg:')
             print_str = ''
             cross_class_iou_avg = iou_avg[iou_avg != 0.0].mean()
             for l, iou in zip(label_names, iou_avg):
                 if iou > 0.0:
-                    print_str = print_str + f'{l}:{np.round(np.iou)} '
+                    print_str = print_str + f'{l}:{np.round(iou, 2)} '
             print(print_str)
-            print('cross-class iou:', cross_class_iou_avg)
+            print('cross-class iou:', np.round(cross_class_iou_avg, 2))
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}
         visualizer.plot_current_losses(tag, epoch, losses, g_steps)
         visualizer.print_current_losses(tag, epoch, e_steps, losses, val_tq)

@@ -44,6 +44,12 @@ class BaseModel(ABC):
         self.extra_val_loss_names = []
         self.model_names = []
         self.visual_names = []
+        ds_A_modality = opt.dataset.dataset_A.modality
+        self.visual_names.extend(['real_' + m for m in ds_A_modality])
+        if hasattr(opt.dataset, 'dataset_B'):
+            ds_B_modality = opt.dataset.dataset_B.modality
+            self.visual_names.extend(['real_B_' + m for m in ds_B_modality])
+        self.visual_names.extend(['real_mask', 'real_B_mask', 'synth_mask'])
         self.optimizers = []
         self.image_paths = []
         self.crterionSSIM = SSIM()

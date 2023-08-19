@@ -42,15 +42,10 @@ class CUTModel(BaseModel):
             self.model_names.append('F_feat')
         if len(opt_m.modality_cond) > 0 :
             self.model_names.append('C')
-        self.visual_names = []
-        for m in opt_m.modality_A:
-            self.visual_names.append('real_' + m)
+
         for m in opt_m.modality_B:
             self.visual_names.append('synth_' + m)
-            self.visual_names.append('real_B_' + m)
-        for m in opt_m.modality_cond:
-            self.visual_names.append('real_' + m)
-            self.visual_names.append('real_B_' + m)
+
         cond_nc_g = np.array([m2ch[m] for m in opt_m.modality_cond]).sum() if len(opt_m.modality_cond) > 0 else None
         input_nc_G = np.array([m2ch[m] for m in opt_m.modality_A]).sum()
         output_nc_G = np.array([m2ch[m] for m in opt_m.out_ch]).sum()
