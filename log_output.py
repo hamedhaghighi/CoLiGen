@@ -123,6 +123,7 @@ def main(runner_cfg_path=None):
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
+    parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
     parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
     cl_args = parser.parse_args()
@@ -179,7 +180,7 @@ def main(runner_cfg_path=None):
     
     # test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
     with torch.no_grad():
-        seg_model = Segmentator().to(device)
+        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut

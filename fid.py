@@ -40,6 +40,8 @@ class FID():
         samples = []
         for ind in tqdm(sample_indxs, desc='gathering real samples for fid'):
             data = ds[ind]
+            if 'B' in data:
+              data = data['B']
             vol = prepare_data_for_seg(data, lidar, is_batch=False)
             vol = vol.to(self.device)
             samples.append(vol)

@@ -13,3 +13,4 @@ external.hpp
 configs/
 rangenet/rangenet_weights
 fid_stats/
+rangenet/rangenet_weights_sp

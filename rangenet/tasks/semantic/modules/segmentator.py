@@ -13,11 +13,16 @@ import os
 from util import _map
 
 class Segmentator(nn.Module):
-  def __init__(self, path_append="", strict=False):
+  def __init__(self, path_append="", strict=False, dataset_name = 'kitti'):
     super().__init__()
-    path = os.path.join('rangenet', 'rangenet_weights')
-    self.ARCH = yaml.safe_load(open('configs/arch_cfg.yaml', 'r'))
-    self.DATA = yaml.safe_load(open('configs/data_cfg.yaml', 'r'))
+    if dataset_name == 'kitti':
+      path = os.path.join('rangenet', 'rangenet_weights')
+      self.ARCH = yaml.safe_load(open('configs/arch_cfg.yaml', 'r'))
+      self.DATA = yaml.safe_load(open('configs/data_cfg.yaml', 'r'))
+    elif dataset_name == 'semanticPOSS':
+      path = os.path.join('rangenet', 'rangenet_weights_sp')
+      self.ARCH = yaml.safe_load(open('configs/sp_arch_cfg.yaml', 'r'))
+      self.DATA = yaml.safe_load(open('configs/sp_data_cfg.yaml', 'r'))      
     self.sensor_img_means = torch.tensor(self.DATA["sensor"]["img_means"], dtype=torch.float)
     self.sensor_img_stds = torch.tensor(self.DATA["sensor"]["img_stds"], dtype=torch.float)
     self.nclasses = len(self.DATA["learning_map_inv"])

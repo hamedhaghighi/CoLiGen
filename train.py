@@ -175,13 +175,17 @@ def main(runner_cfg_path=None):
     visualizer = Visualizer(opt.training)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_fid = 10000
-    ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
+    if cl_args.ref_dataset_name == 'kitti':
+        ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
+    elif cl_args.ref_dataset_name == 'semanticPOSS':
+        ignore_label = [0, 3, 9]
+
 
     train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size)
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False)  
     test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
     with torch.no_grad():
-        seg_model = Segmentator().to(device)
+        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut
