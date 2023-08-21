@@ -299,7 +299,7 @@ def main(runner_cfg_path=None):
                 synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
                 fid_samples.append(synth_data)
                 if not opt.training.isTrain:
-                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data, fetched_data['label'], ignore=ignore_label)
+                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'] , fetched_data['label'], ignore=ignore_label)
                     iou_list.append(iou.cpu().numpy())
                     m_acc_list.append(m_acc.cpu().numpy())
 

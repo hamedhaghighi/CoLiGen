@@ -227,7 +227,7 @@ def main(runner_cfg_path=None):
         synth_points = lidar_A.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar_A.max_depth
         synth_reflectance = tanh_to_sigmoid(synth_reflectance)
         synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
-        pred, _ = seg_model(synth_data)
+        pred, _ = seg_model(synth_data * fetched_data['mask'])
         pred = pred.argmax(dim=1)
         current_visuals = model.get_current_visuals()
         current_visuals['pred_label'] = pred
