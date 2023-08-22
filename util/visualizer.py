@@ -157,7 +157,7 @@ class Visualizer():
             display_domain_visuals(visual_A, g_step, data_maps_A, lidar_A, dataset_name_A)
             display_domain_visuals(visual_B, g_step, data_maps_B, lidar_B, dataset_name_B)
         else:
-            display_domain_visuals(visual_A, g_step, data_maps_A, lidar_A, dataset_name_A)
+            display_domain_visuals(current_visuals, g_step, data_maps_A, lidar_A, dataset_name_A)
 
     def plot_current_losses(self, phase, epoch, losses, g_step):
         """display the current losses on visdom display: dictionary of error labels and values

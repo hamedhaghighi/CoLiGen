@@ -686,11 +686,11 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'resnet_6blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer)
     elif netG == 'unet_64':
-        net = UnetGenerator(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=False, out_ch=out_ch, encode_layer=encode_layer)
+        net = UnetGenerator_2(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=False, out_ch=out_ch, encode_layer=encode_layer)
     elif netG == 'unet_128':
-        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=same_kernel_size, out_ch=out_ch, encode_layer=encode_layer)
+        net = UnetGenerator_2(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=same_kernel_size, out_ch=out_ch, encode_layer=encode_layer)
     elif netG == 'unet_256':
-        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, out_ch=out_ch, same_kernel_size=same_kernel_size, encode_layer=encode_layer)
+        net = UnetGenerator_2(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, out_ch=out_ch, same_kernel_size=same_kernel_size, encode_layer=encode_layer)
     elif netG == 'stylegan2':
         net = StyleGAN2Generator(input_nc, output_nc, ngf, use_dropout=use_dropout, opt=opt)
     elif netG == 'smallstylegan2':
@@ -1045,7 +1045,7 @@ class ResnetBlock(nn.Module):
 class UnetGenerator_2(nn.Module):
     """Create a Unet-based generator"""
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, out_ch = None, same_kernel_size=True):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, out_ch = None, same_kernel_size=True, encode_layer=None):
         """Construct a Unet generator
         Parameters:
             input_nc (int)  -- the number of channels in input images
@@ -1058,7 +1058,7 @@ class UnetGenerator_2(nn.Module):
         We construct the U-Net from the innermost layer to the outermost layer.
         It is a recursive process.
         """
-        super(UnetGenerator, self).__init__()
+        super(UnetGenerator_2, self).__init__()
         # construct unet structure
         self.out_ch = out_ch
         self.out_modality = self.out_ch.copy()

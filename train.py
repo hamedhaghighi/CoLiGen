@@ -169,8 +169,8 @@ def main(runner_cfg_path=None):
    ).to(device) if is_two_dataset else None
     lidar_ref = LiDAR(
     cfg=ds_cfg_ref,
-    height=opt.dataset.dataset_B.img_prop.height,
-    width=opt.dataset.dataset_B.img_prop.width).to(device)
+    height=opt.dataset.dataset_A.img_prop.height,
+    width=opt.dataset.dataset_A.img_prop.width).to(device)
     lidar = lidar_B if is_two_dataset else lidar_ref
     visualizer = Visualizer(opt.training)   # create a visualizer that display/save images and plots
     g_steps = 0

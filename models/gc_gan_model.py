@@ -21,9 +21,9 @@ class GcGANModel(BaseModel):
         self.lidar_A = lidar_A
         self.lidar_B = lidar_B
         if self.isTrain:
-            self.model_names = ['G_AB', 'G_gc_AB'] if 'cross' in opt_m.name else ['G_AB']
-        else:
             self.model_names = ['G_AB', 'G_gc_AB', 'D_B','D_gc_B']
+        else:
+            self.model_names = ['G_AB', 'G_gc_AB'] if 'cross' in opt_m.name else ['G_AB']
 
         self.loss_names = ['D_B', 'G_AB', 'G_gc_AB', 'gc']
         if self.opt.model.identity > 0.0:

@@ -49,7 +49,8 @@ class BaseModel(ABC):
         if hasattr(opt.dataset, 'dataset_B'):
             ds_B_modality = opt.dataset.dataset_B.modality
             self.visual_names.extend(['real_B_' + m for m in ds_B_modality])
-        self.visual_names.extend(['real_mask', 'real_B_mask', 'synth_mask'])
+            self.visual_names.extend(['real_B_mask'])
+        self.visual_names.extend(['real_mask', 'synth_mask'])
         self.visual_names = [s.replace('depth','inv') for s in self.visual_names]
         self.optimizers = []
         self.image_paths = []

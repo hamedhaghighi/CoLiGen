@@ -1,4 +1,5 @@
 checkpoints
+checkpoints_sp
 *.pyc
 *.pyo
 *.o
