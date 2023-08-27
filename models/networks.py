@@ -651,7 +651,7 @@ class G_Resnet(nn.Module):
 
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], out_ch=None, same_kernel_size=True, no_antialias=False, no_antialias_up=False, opt=None, encode_layer=None):
+def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], out_ch=None, same_kernel_size=True, no_antialias=False, no_antialias_up=False, opt=None, encode_layer=None, have_cond_mod=False):
     """Create a generator
 
     Parameters:
@@ -682,9 +682,9 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     norm_layer = get_norm_layer(norm_type=norm)
 
     if netG == 'resnet_9blocks':
-        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer)
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer, have_cond_modality=have_cond_mod)
     elif netG == 'resnet_6blocks':
-        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer)
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, out_ch=out_ch, no_antialias=no_antialias, no_antialias_up=no_antialias_up, encode_layer=encode_layer, have_cond_modality=have_cond_mod)
     elif netG == 'unet_64':
         net = UnetGenerator_2(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout, same_kernel_size=False, out_ch=out_ch, encode_layer=encode_layer)
     elif netG == 'unet_128':
@@ -884,7 +884,7 @@ class ResnetGenerator(nn.Module):
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect', out_ch=None, no_antialias=False, no_antialias_up=False, encode_layer=None):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect', out_ch=None, no_antialias=False, no_antialias_up=False, encode_layer=None, have_cond_modality=False):
         """Construct a Resnet-based generator
 
         Parameters:
@@ -955,6 +955,8 @@ class ResnetGenerator(nn.Module):
         if encode_layer is not None:
             model = model[:encode_layer]
         self.model = nn.Sequential(*model)
+        if have_cond_modality:
+            self.cond_processor = nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1, bias=True)
 
     def forward(self, input, layers=[], encode_only=False, cond=None, cond_layer=None):
         """Standard forward"""
@@ -968,7 +970,8 @@ class ResnetGenerator(nn.Module):
             if layer_id in layers:
                 feats.append(feat)
             if cond is not None and layer_id == cond_layer - 1:
-                feat += cond
+                feat = self.cond_processor(torch.cat([feat, cond], dim=1))
+                # feat += cond
                 # print('encoder only return features')
         if encode_only:
             return feats

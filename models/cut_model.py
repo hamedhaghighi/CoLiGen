@@ -54,7 +54,7 @@ class CUTModel(BaseModel):
         # same_kernel_size = opt.dataset.dataset_A.img_prop.width == opt.dataset.dataset_A.img_prop.height
         self.netC = networks.define_G(cond_nc_g, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch,\
              opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m, encode_layer=self.nce_layers[-1]) if cond_nc_g else None
-        self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch, opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m)
+        self.netG = networks.define_G(input_nc_G, output_nc_G, opt_m.ngf, opt_m.netG, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain, self.gpu_ids, opt_m.out_ch, opt_m.no_antialias, opt_m.no_antialias_up, opt=opt_m, have_cond_mod= len(opt_m.modality_cond) > 0)
         self.netF = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m) if self.opt.model.lambda_NCE > 0.0 else None
         self.netF_feat = networks.define_F(input_nc_G, opt_m.netF, opt_m.normG, not opt_m.no_dropout, opt_m.init_type, opt_m.init_gain,  self.gpu_ids, opt_m.no_antialias, opt_m) if self.opt.model.lambda_NCE_feat > 0.0 else None
         
