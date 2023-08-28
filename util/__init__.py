@@ -105,7 +105,7 @@ def fetch_reals(data, lidar, device):
     if 'rgb' in data:
         batch['rgb'] = sigmoid_to_tanh(data['rgb'])
     if 'label' in data:
-        batch['label'] = data['label']
+        batch['label'] = sigmoid_to_tanh(data['label'])
     for k , v in batch.items():
         batch[k] = v.to(device)
     return batch
@@ -219,6 +219,8 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:
             if dataset_name in ['kitti', 'carla', 'semanticPOSS']:
+                value = tanh_to_sigmoid(value)
+                value = torch.round(value * (10.0 if  dataset_name == 'semanticPOSS' else 19.0))
                 label_tensor = _map(_map(value.squeeze(dim=1).long(), data_maps.learning_map_inv), data_maps.color_map)
                 out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
             elif dataset_name == 'nuscene':

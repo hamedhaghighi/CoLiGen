@@ -246,7 +246,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         if "reflectance" in self.modality:
             out["reflectance"] = points[..., [3]]/255.0 if self.name == 'semanticPOSS' else points[..., [3]]
         if "label" in self.modality:
-            out["label"] = points[..., [4]]
+            out["label"] = points[..., [4]] / (10.0 if self.name == 'semanticPOSS' else 19.0)
         if self.has_rgb:
             out["rgb"] = points[..., -3:]/ 255.0 # h,w, c
             black_pos = (out["rgb"] == 0.0).all(2)
