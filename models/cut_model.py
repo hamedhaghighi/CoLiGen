@@ -218,7 +218,8 @@ class CUTModel(BaseModel):
             B, C, H ,W = tgt.shape
             extra_ch = torch.zeros(B, diff_ch, H, W).to(src)
             # if src.shape[1] > tgt.shape[1]:
-            src[:, 0:diff_ch] = extra_ch  
+            # src[:, 0:diff_ch] = extra_ch  
+            extra_ch = src[:, 0:diff_ch].clone()
             tgt = torch.cat([extra_ch, tgt], dim=1)
       
         feat_q = self.netG(tgt, self.nce_layers, encode_only=True)

@@ -125,9 +125,11 @@ def main(runner_cfg_path=None):
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
+    parser.add_argument('--gpu', type=int, default=0, help='GPU no')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
     parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
     cl_args = parser.parse_args()
+    torch.cuda.set_device(f'cuda:{cl_args.gpu}')
     if runner_cfg_path is not None:
         cl_args.cfg = runner_cfg_path
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
@@ -148,6 +150,7 @@ def main(runner_cfg_path=None):
     is_two_dataset = False
     if hasattr(opt.dataset, 'dataset_B'):
         is_two_dataset = True
+    opt.training.gpu_ids = [cl_args.gpu]
     device = torch.device('cuda:{}'.format(opt.training.gpu_ids[0])) if opt.training.gpu_ids else torch.device('cpu') 
     ds_cfg = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{opt.dataset.dataset_A.name}_cfg.yml', 'r')))
     if not hasattr(opt.dataset.dataset_A, 'data_dir'):
@@ -157,7 +160,6 @@ def main(runner_cfg_path=None):
             ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{opt.dataset.dataset_B.name}_cfg.yml', 'r')))
             opt.dataset.dataset_B.data_dir = ds_cfg_B.data_dir
     ds_cfg_ref = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{cl_args.ref_dataset_name}_cfg.yml', 'r')))
-    
     lidar_A = LiDAR(
     cfg=ds_cfg,
     height=opt.dataset.dataset_A.img_prop.height,
