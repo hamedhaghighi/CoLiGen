@@ -52,6 +52,7 @@ class M_parser():
             self.dataset.dataset_A.data_dir = data_dir
         if data_dir_B != '':
             self.dataset.dataset_B.data_dir = data_dir_B
+        self.training.test = True
         self.model.isTrain = self.training.isTrain = not self.training.test
         self.training.epoch_decay = self.training.n_epochs//2
 
@@ -122,6 +123,7 @@ def main(runner_cfg_path=None):
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
+    parser.add_argument('--norm_label', action='store_true', help='normalise labels')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
     parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
@@ -129,11 +131,13 @@ def main(runner_cfg_path=None):
     cl_args = parser.parse_args()
     if runner_cfg_path is not None:
         cl_args.cfg = runner_cfg_path
-    
+    if 'checkpoints' in cl_args.cfg:
+        cl_args.load = cl_args.cfg.split(os.path.sep)[1]
     split = 'train'
     seqs = [0, 0 , 0] if cl_args.fast_test else [0, 0 , 0]
     ids = [1, 2, 3] if cl_args.fast_test else [1, 2, 3]
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
+    opt.model.norm_label = cl_args.norm_label
     torch.manual_seed(opt.training.seed)
     np.random.seed(opt.training.seed)
     random.seed(opt.training.seed)
@@ -166,12 +170,12 @@ def main(runner_cfg_path=None):
     height=opt.dataset.dataset_B.img_prop.height,
     width=opt.dataset.dataset_B.img_prop.width,
    ).to(device) if is_two_dataset else None
-    visualizer = Visualizer(opt.training)   # create a visualizer that display/save images and plots
+    visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
     g_steps = 0
     ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
 
-
-    val_dl, val_dataset = get_data_loader(opt, split, opt.training.batch_size, shuffle=False)
+    is_ref_semposs = cl_args.ref_dataset_name == 'semanticPOSS'
+    val_dl, val_dataset = get_data_loader(opt, split, opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)
     dataset_A_datalist = np.array(val_dataset.datasetA.datalist)
     dataset_A_selected_idx = []
     for seq, id in zip(seqs, ids):
@@ -205,7 +209,7 @@ def main(runner_cfg_path=None):
         model.set_input(data)
         with torch.no_grad():
             model.forward()
-        fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar_A, device)
+        fetched_data = fetch_reals(data['A'] if is_two_dataset else data, lidar_A, device, opt.model.norm_label)
         if cl_args.on_input:
             # assert is_two_dataset == False
             if 'inv' in fetched_data:

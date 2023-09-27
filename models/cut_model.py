@@ -99,8 +99,8 @@ class CUTModel(BaseModel):
                 self.optimizers.append(self.optimizer_F_feat)
 
     def set_input(self, input):
-        data_A = fetch_reals(input['A'], self.lidar_A, self.device)
-        data_B = fetch_reals(input['B'], self.lidar_B, self.device)
+        data_A = fetch_reals(input['A'], self.lidar_A, self.device, self.opt.model.norm_label)
+        data_B = fetch_reals(input['B'], self.lidar_B, self.device, self.opt.model.norm_label)
         for k, v in data_A.items():
             setattr(self, 'real_' + k, v)
         for k, v in data_B.items():
@@ -218,8 +218,8 @@ class CUTModel(BaseModel):
             B, C, H ,W = tgt.shape
             extra_ch = torch.zeros(B, diff_ch, H, W).to(src)
             # if src.shape[1] > tgt.shape[1]:
-            # src[:, 0:diff_ch] = extra_ch  
-            extra_ch = src[:, 0:diff_ch].clone()
+            src[:, 0:diff_ch] = extra_ch  
+            # extra_ch = src[:, 0:diff_ch].clone()
             tgt = torch.cat([extra_ch, tgt], dim=1)
       
         feat_q = self.netG(tgt, self.nce_layers, encode_only=True)

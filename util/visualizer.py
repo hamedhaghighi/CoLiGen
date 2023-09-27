@@ -101,17 +101,17 @@ class Visualizer():
         Step 3: create an HTML object for saveing HTML filters
         Step 4: create a logging file to store training losses
         """
-        self.opt = opt
-        self.exp_dir = os.path.join(opt.checkpoints_dir, opt.name)
+        self.opt = opt.training
+        self.exp_dir = os.path.join(self.opt.checkpoints_dir, self.opt.name)
 
-        self.tb_dir = os.path.join(self.exp_dir +('/TB/' if opt.isTrain else '/TB_test/'), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        self.tb_dir = os.path.join(self.exp_dir +('/TB/' if self.opt.isTrain else '/TB_test/'), datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         os.makedirs(self.tb_dir, exist_ok=True)
         self.writer = SummaryWriter(self.tb_dir)
         self.log_name = os.path.join(self.tb_dir , 'loss_log.txt')
         with open(self.log_name, "a") as log_file:
             now = time.strftime("%c")
             log_file.write('================ Training Loss (%s) ================\n' % now)
-
+        self.norm_label = opt.model.norm_label
 
     def log_imgs(self, tensor, tag, step, color=True, cmap='turbo', save_img=False):
         B = tensor.shape[0]
@@ -136,7 +136,7 @@ class Visualizer():
     def display_current_results(self, phase, current_visuals, g_step, data_maps_A,\
          dataset_name_A,lidar_A, data_maps_B=None, dataset_name_B=None, lidar_B=None, save_img=False):
         def display_domain_visuals(visuals, g_step, data_maps, lidar, dataset_name):
-            visuals = postprocess(visuals, lidar, data_maps=data_maps, dataset_name=dataset_name)
+            visuals = postprocess(visuals, lidar, data_maps=data_maps, dataset_name=dataset_name, norm_label=self.norm_label)
             for k , v in visuals.items():
                 if 'points' in k:
                     points = flatten(v)

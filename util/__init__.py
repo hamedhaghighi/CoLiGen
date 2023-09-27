@@ -91,12 +91,12 @@ def cat_modality(data_dict, modality):
     out = torch.cat(data_list, dim=1)
     return out
     
-def fetch_reals(data, lidar, device):
+def fetch_reals(data, lidar, device, norm_label=False):
     mask = data["mask"].float()
     inv = lidar.invert_depth(data["depth"])
     inv = sigmoid_to_tanh(inv)  # [-1,1]
     inv = mask * inv + (1 - mask) * -1
-    batch = {'inv': inv, 'mask': mask, 'depth': data['depth'], 'points': data['points']}
+    batch = {'inv': inv, 'mask': mask, 'depth': data['depth'], 'points': data['points'], 'lwo': data['lwo']}
     if 'reflectance' in data:
         reflectance =  data["reflectance"] # [0, 1]
         reflectance = sigmoid_to_tanh(reflectance)
@@ -104,8 +104,8 @@ def fetch_reals(data, lidar, device):
         batch['reflectance'] = reflectance
     if 'rgb' in data:
         batch['rgb'] = sigmoid_to_tanh(data['rgb'])
-    if 'label' in data:
-        batch['label'] = sigmoid_to_tanh(data['label'])
+    if 'label' in data: 
+        batch['label'] = sigmoid_to_tanh(data['label']) if norm_label else data['label']
     for k , v in batch.items():
         batch[k] = v.to(device)
     return batch
@@ -208,7 +208,7 @@ def cycle(iterable):
             yield i
 
 
-def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
+def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti', norm_label=False):
     out = {}
     for key, value in synth.items():
         if 'inv' in key:
@@ -219,8 +219,9 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti'):
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:
             if dataset_name in ['kitti', 'carla', 'semanticPOSS']:
-                value = tanh_to_sigmoid(value)
-                value = torch.round(value * (10.0 if  dataset_name == 'semanticPOSS' else 19.0))
+                if norm_label:
+                    value = tanh_to_sigmoid(value)
+                    value = torch.round(value * (10.0 if  dataset_name == 'semanticPOSS' else 19.0))
                 label_tensor = _map(_map(value.squeeze(dim=1).long(), data_maps.learning_map_inv), data_maps.color_map)
                 out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
             elif dataset_name == 'nuscene':

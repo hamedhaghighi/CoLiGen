@@ -970,8 +970,7 @@ class ResnetGenerator(nn.Module):
             if layer_id in layers:
                 feats.append(feat)
             if cond is not None and layer_id == cond_layer - 1:
-                feat = self.cond_processor(torch.cat([feat, cond], dim=1))
-                # feat += cond
+                feat += cond
                 # print('encoder only return features')
         if encode_only:
             return feats

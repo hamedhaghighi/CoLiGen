@@ -31,7 +31,9 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         fill_in_label=False,
         name='kitti', 
         limited_view=False,
-        finesize=None):
+        finesize=None,
+        norm_label=False,
+        is_ref_semposs=False):
         super().__init__()
         self.root = osp.join(root, "sequences")
         self.subsets = np.asarray(getattr(DATA.split, split))
@@ -51,6 +53,8 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         self.has_label = 'label' in modality
         self.limited_view = limited_view
         self.finesize = finesize
+        self.norm_label = norm_label
+        self.is_ref_semposs = is_ref_semposs
         if self.has_rgb:
             self.has_rgb = True
             calib = self.load_calib()
@@ -246,7 +250,12 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         if "reflectance" in self.modality:
             out["reflectance"] = points[..., [3]]/255.0 if self.name == 'semanticPOSS' else points[..., [3]]
         if "label" in self.modality:
-            out["label"] = points[..., [4]] / (10.0 if self.name == 'semanticPOSS' else 19.0)
+            out["label"] = points[..., [4]] / (10.0 if self.name == 'semanticPOSS' else 19.0) if self.norm_label else points[..., [4]]
+            # if self.name == 'carla' :
+            #     out['label'] = _map(out['label'].astype('int'), self.DATA.kitti_to_POSS_map).astype(np.float32)
+            out['lwo'] = points[..., [4]]
+            if self.name == 'carla' and self.is_ref_semposs:
+                out['lwo'] = _map(out['lwo'].astype('int'), self.DATA.kitti_to_POSS_map).astype(np.float32)
         if self.has_rgb:
             out["rgb"] = points[..., -3:]/ 255.0 # h,w, c
             black_pos = (out["rgb"] == 0.0).all(2)

@@ -42,7 +42,7 @@ def inv_to_xyz(inv, lidar, tol=1e-8):
 
 
 class M_parser():
-    def __init__(self, cfg_path, data_dir, data_dir_B, load):
+    def __init__(self, cfg_path, data_dir, data_dir_B, load, is_test):
         opt_dict = yaml.safe_load(open(cfg_path, 'r'))
         dict_class = make_class_from_dict(opt_dict)
         members = [attr for attr in dir(dict_class) if not callable(getattr(dict_class, attr)) and not attr.startswith("__")]
@@ -52,6 +52,7 @@ class M_parser():
             self.dataset.dataset_A.data_dir = data_dir
         if data_dir_B != '':
             self.dataset.dataset_B.data_dir = data_dir_B
+        self.training.test = is_test
         self.model.isTrain = self.training.isTrain = not self.training.test
         self.training.epoch_decay = self.training.n_epochs//2
 
@@ -97,7 +98,7 @@ def check_exp_exists(opt, cfg_args):
         elif 'cut' in opt_m.name:
             opt_t.name = f'cut_modality_A_{modality_A}_out_ch_{out_ch}_cond_modality_{cond_modality}_lambda_GAN_{opt_m.lambda_GAN}' \
                 + f'_lambda_NCE_{opt_m.lambda_NCE}_lambda_NCE_feat_{opt_m.lambda_NCE_feat}_w_{opt_d.img_prop.width}_h_{opt_d.img_prop.height}' \
-                    + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_netF_{opt_m.netF}_n_layers_D_{opt_m.n_layers_D}_batch_size_{opt_t.batch_size}_finesize_{opt_d.img_prop.finesize}_lr_decay_iters_{opt_t.lr_decay_iters}_lr_{opt_t.lr}'
+                    + f'_netG_{opt_m.netG}_netD_{opt_m.netD}_n_layers_D_{opt_m.n_layers_D}_batch_size_{opt_t.batch_size}_finesize_{opt_d.img_prop.finesize}_lr_decay_iters_{opt_t.lr_decay_iters}_lr_{opt_t.lr}'
         
     exp_dir = os.path.join(opt_t.checkpoints_dir, opt_t.name)
     if not opt_t.continue_train and opt_t.isTrain:
@@ -122,6 +123,8 @@ def main(runner_cfg_path=None):
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
+    parser.add_argument('--test', action='store_true', help='fast test of experiment')
+    parser.add_argument('--norm_label', action='store_true', help='normalise labels')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
@@ -132,7 +135,11 @@ def main(runner_cfg_path=None):
     torch.cuda.set_device(f'cuda:{cl_args.gpu}')
     if runner_cfg_path is not None:
         cl_args.cfg = runner_cfg_path
-    opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
+    if 'checkpoints' in cl_args.cfg:
+        cl_args.load = cl_args.cfg.split(os.path.sep)[1]
+
+    opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load, cl_args.test)
+    opt.model.norm_label = cl_args.norm_label
     torch.manual_seed(opt.training.seed)
     np.random.seed(opt.training.seed)
     random.seed(opt.training.seed)
@@ -174,7 +181,7 @@ def main(runner_cfg_path=None):
     height=opt.dataset.dataset_A.img_prop.height,
     width=opt.dataset.dataset_A.img_prop.width).to(device)
     lidar = lidar_B if is_two_dataset else lidar_ref
-    visualizer = Visualizer(opt.training)   # create a visualizer that display/save images and plots
+    visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_fid = 10000
     if cl_args.ref_dataset_name == 'kitti':
@@ -182,10 +189,10 @@ def main(runner_cfg_path=None):
     elif cl_args.ref_dataset_name == 'semanticPOSS':
         ignore_label = [0, 3, 9]
 
-
-    train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size)
-    val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False)  
-    test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
+    is_ref_semposs = cl_args.ref_dataset_name == 'semanticPOSS'
+    train_dl, train_dataset = get_data_loader(opt, 'train', opt.training.batch_size,is_ref_semposs=is_ref_semposs)
+    val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)  
+    test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False, is_ref_semposs=is_ref_semposs)
     with torch.no_grad():
         seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
@@ -201,7 +208,7 @@ def main(runner_cfg_path=None):
     test_tq = tqdm.tqdm(total=n_test_batch, desc='real_data', position=5)
     for i in range(0, N, opt.training.batch_size):
         data = next(test_dl_iter)
-        data = fetch_reals(data, lidar_ref, device)
+        data = fetch_reals(data, lidar_ref, device, opt.model.norm_label)
         data_dict['real-2d'].append(data['inv'])
         data_dict['real-3d'].append(inv_to_xyz(data['inv'], lidar_ref))
         test_tq.update(1)
@@ -301,7 +308,7 @@ def main(runner_cfg_path=None):
                 synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
                 fid_samples.append(synth_data)
                 if not opt.training.isTrain:
-                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'] , fetched_data['label'], ignore=ignore_label)
+                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'] , fetched_data['lwo'], ignore=ignore_label)
                     iou_list.append(iou.cpu().numpy())
                     m_acc_list.append(m_acc.cpu().numpy())
 
