@@ -23,10 +23,11 @@ if sys.version_info[0] == 2:
 else:
     VisdomExceptionBase = ConnectionError
 
-def visualize_tensor(pts, depth):
+def visualize_tensor(pts, depth, tag, ds_name):
 
     # depth_range = np.exp2(lidar_range*6)-1
-    color = plt.cm.viridis(np.clip(depth, 0, 1).flatten())
+    color = plt.cm.turbo(np.clip(depth, 0, 1).flatten())
+    # color = depth
     # mask out invalid points
     xyz = pts
     color = color[..., :3]
@@ -40,15 +41,24 @@ def visualize_tensor(pts, depth):
     render = rendering.OffscreenRenderer(1920, 1080, headless=True)
     mtl = rendering.MaterialRecord()
     mtl.base_color = [1, 1, 1, 0.5]
-    mtl.point_size = 4
+    if ds_name == 'kitti' or ds_name == 'carla':
+        mtl.point_size = 4 if 'synth' in tag else 4
+    else:
+        mtl.point_size = 4
     mtl.shader = "defaultLit"
-    render.scene.set_background([255, 255, 255, 0.0])
+    # render.scene.set_background([255, 255, 255, 1.0])
+    # render.scene.set_background([0, 0, 0, 1.0])
     render.scene.add_geometry("point cloud", pcd, mtl)
     render.scene.set_lighting(render.scene.LightingProfile.NO_SHADOWS, (1, 1, 1))
-    render.scene.scene.enable_sun_light(True)
-    render.scene.camera.look_at([0, 0, 0], [0, 0, 1], [0, 1, 0])
+    # render.scene.scene.enable_sun_light(True)
+    # render.scene.camera.look_at([0, 0, 0], [0, 0, 0], [0, 0, 1])
     bev_img = render.render_to_image()
-    render.setup_camera(60.0, [0, 0, 0], [-0.2, 0, 0.1], [0, 0, 1])
+    # render.setup_camera(60.0, [0, 0, 0], [-0.2, 0, 0.1], [0, 0, 1])
+    # render.setup_camera(60.0, [0, 0, 0], [-0.8, -0.1, 0.3], [0, 0, 1])
+    if ds_name == 'kitti' or ds_name == 'carla':
+        render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.5], [0, 0, 1])
+    else:
+        render.setup_camera(60.0, [0, 0, 0], [0.08, -0.1, 0.5], [0, 0, 1])
     pts_img = render.render_to_image()
     return bev_img, pts_img
 
@@ -113,13 +123,17 @@ class Visualizer():
             log_file.write('================ Training Loss (%s) ================\n' % now)
         self.norm_label = opt.model.norm_label
 
-    def log_imgs(self, tensor, tag, step, color=True, cmap='turbo', save_img=False):
+    def log_imgs(self, tensor, tag, step, color=True, cmap='turbo', save_img=False, ds_name = 'carla'):
         B = tensor.shape[0]
         nrow = 4 if B > 8 else 1
         grid = make_grid(tensor.detach(), nrow=nrow)
         grid = grid.cpu().numpy()  # CHW
         if color:
             grid = grid[0]  # HW
+            if cmap != 'gray' and 'inv' in tag:
+                grid *= 2 if ds_name == 'carla' or ds_name == 'kitti' else 2
+            if ds_name == 'semanticPOSS' and 'reflectance' in tag:
+                grid *=5
             grid = colorize(grid, cmap=cmap).transpose(2, 0, 1)  # CHW
         else:
             grid = grid.astype(np.uint8)
@@ -127,7 +141,8 @@ class Visualizer():
             if grid.max() <= 1.0:
                 grid = grid * 255.0
             im_grid = Image.fromarray(grid.transpose(1,2,0).astype(np.uint8))
-            img_folder_dir = os.path.join(self.exp_dir,'TB_test', 'img_results', 'seq_' + str(step[0]).zfill(2) + '_id_' + str(step[1]).zfill(6))
+            folder_name = 'seq_' + str(step[0]).zfill(2) + '_id_' + str(step[1]).zfill(6) + ('_on_input' if step[2] else '') 
+            img_folder_dir = os.path.join(self.exp_dir,'TB_test', 'img_results', folder_name)
             os.makedirs(img_folder_dir, exist_ok=True)
             im_grid.save(os.path.join(img_folder_dir, tag.replace('/', '_') + '.png'))
         else:
@@ -140,16 +155,20 @@ class Visualizer():
             for k , v in visuals.items():
                 if 'points' in k:
                     points = flatten(v)
+                    # inv = visuals['real_label' if k == 'real_points' else 'synth_label']
                     inv = visuals[k.replace('points', 'inv')]
+                    # r = 1 / (inv + 0.1)
+                    # r = (r - r.min()) / (r.max()-r.min()) 
                     image_list = []
                     for i in range(points.shape[0]):
-                        _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2.5)
+                        _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np(inv[i]) * 2, k, dataset_name)
+                        # _, gen_pts_img = visualize_tensor(to_np(points[i]), to_np((inv[i].permute(1,2,0).flatten(0, 1))/255.0))
                         image_list.append(torch.from_numpy(np.asarray(gen_pts_img)))
                     visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
             for k , img_tensor in visuals.items():
                 colorise = False if  any([k_ in k for k_ in ['points', 'label', 'rgb']]) else True
                 cmap = 'viridis' if ('reflectance' in k) else ('gray' if 'mask' in k else 'turbo')
-                self.log_imgs(img_tensor, phase + '/' + k, g_step, colorise, cmap, save_img)
+                self.log_imgs(img_tensor, phase + '/' + k, g_step, colorise, cmap, save_img, dataset_name)
         if lidar_B is not None:
             domain_A_keys = [k for k in list(current_visuals.keys()) if not 'B' in k and not 'synth' in k]
             domain_B_keys = [k for k in list(current_visuals.keys()) if k not in domain_A_keys]

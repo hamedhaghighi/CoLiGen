@@ -128,14 +128,20 @@ def main(runner_cfg_path=None):
     parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
     parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
+    
     cl_args = parser.parse_args()
     if runner_cfg_path is not None:
         cl_args.cfg = runner_cfg_path
     if 'checkpoints' in cl_args.cfg:
         cl_args.load = cl_args.cfg.split(os.path.sep)[1]
-    split = 'train'
-    seqs = [0, 0 , 0] if cl_args.fast_test else [0, 0 , 0]
-    ids = [1, 2, 3] if cl_args.fast_test else [1, 2, 3]
+    split = 'train/val'
+    if cl_args.ref_dataset_name == 'semanticPOSS':
+        seqs = [0, 0, 5] if not cl_args.fast_test else [0, 0 , 0]
+        ids = [75, 385, 200] if not cl_args.fast_test else [1, 2, 3]
+    else:
+        seqs = [0, 0,  2, 5] if not cl_args.fast_test else [0, 0 , 0]
+        ids = [1, 268, 345, 586] if not cl_args.fast_test else [1, 2, 3]
+
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
     opt.model.norm_label = cl_args.norm_label
     torch.manual_seed(opt.training.seed)
@@ -160,7 +166,7 @@ def main(runner_cfg_path=None):
         if not hasattr(opt.dataset.dataset_B, 'data_dir'):
             ds_cfg_B = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{opt.dataset.dataset_B.name}_cfg.yml', 'r')))
             opt.dataset.dataset_B.data_dir = ds_cfg_B.data_dir
-    
+    ds_cfg_ref = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{cl_args.ref_dataset_name}_cfg.yml', 'r')))
     lidar_A = LiDAR(
     cfg=ds_cfg,
     height=opt.dataset.dataset_A.img_prop.height,
@@ -170,13 +176,19 @@ def main(runner_cfg_path=None):
     height=opt.dataset.dataset_B.img_prop.height,
     width=opt.dataset.dataset_B.img_prop.width,
    ).to(device) if is_two_dataset else None
+    lidar_ref = LiDAR(
+    cfg=ds_cfg_ref,
+    height=opt.dataset.dataset_A.img_prop.height,
+    width=opt.dataset.dataset_A.img_prop.width).to(device)
+    lidar = lidar_B if is_two_dataset else lidar_ref
     visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
     g_steps = 0
     ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
 
     is_ref_semposs = cl_args.ref_dataset_name == 'semanticPOSS'
     val_dl, val_dataset = get_data_loader(opt, split, opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)
-    dataset_A_datalist = np.array(val_dataset.datasetA.datalist)
+    data_list = val_dataset.datasetA.datalist if is_two_dataset else val_dataset.datalist
+    dataset_A_datalist = np.array(data_list)
     dataset_A_selected_idx = []
     for seq, id in zip(seqs, ids):
         pcl_file_path = os.path.join(ds_cfg.data_dir, 'sequences', str(seq).zfill(2), 'velodyne', str(id).zfill(6)+('.bin' if ds_cfg.is_raw else '.npy'))
@@ -204,8 +216,11 @@ def main(runner_cfg_path=None):
     val_tq = tqdm.tqdm(total=len(dataset_A_selected_idx), desc='val_Iter', position=5)
     for i, idx in enumerate(dataset_A_selected_idx):
         data = val_dataset[idx]
-        data['A'] = {k: v.unsqueeze(0) for k, v in data['A'].items()}
-        data['B'] = {k: v.unsqueeze(0) for k, v in data['B'].items()}
+        if is_two_dataset:
+            data['A'] = {k: v.unsqueeze(0) for k, v in data['A'].items()}
+            data['B'] = {k: v.unsqueeze(0) for k, v in data['B'].items()}
+        else:
+            data = {k: v.unsqueeze(0) for k, v in data.items()}
         model.set_input(data)
         with torch.no_grad():
             model.forward()
@@ -227,22 +242,26 @@ def main(runner_cfg_path=None):
                 synth_inv = model.synth_inv
             else:
                 synth_inv = fetched_data['inv'] * synth_mask
-        synth_depth = lidar_A.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
-        synth_points = lidar_A.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar_A.max_depth
+        synth_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
+        synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
         synth_reflectance = tanh_to_sigmoid(synth_reflectance)
         synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
         pred, _ = seg_model(synth_data * fetched_data['mask'])
         pred = pred.argmax(dim=1)
         current_visuals = model.get_current_visuals()
-        current_visuals['pred_label'] = pred
-        current_visuals = {k: v for k ,v in current_visuals.items() if 'B' not in k}
+        # if cl_args.on_input :
+        #     current_visuals['synth_inv'] = synth_inv
+        #     current_visuals['synth_mask'] = synth_mask
+        #     current_visuals['synth_reflectance'] = synth_reflectance
+        current_visuals['synth_label'] = pred
+        # current_visuals = {k: v for k ,v in current_visuals.items() if 'B' not in k}
         seq = seqs[i]
-        id = ids[i]
-        if is_two_dataset:
-            visualizer.display_current_results('',current_visuals, (seq, id),ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_B,\
-                    opt.dataset.dataset_B.name,lidar_B, save_img=True)
-        else:
-            visualizer.display_current_results('', current_visuals, (seq, id),ds_cfg, opt.dataset.dataset_A.name, lidar_A, save_img=True)
+        _id = ids[i]
+        # if is_two_dataset:
+        visualizer.display_current_results('',current_visuals, [seq, _id, cl_args.on_input],ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_ref,\
+                cl_args.ref_dataset_name ,lidar, save_img=True)
+        # else:
+            # visualizer.display_current_results('', current_visuals, (seq, id),ds_cfg, opt.dataset.dataset_A.name, lidar, save_img=True)
         val_tq.update(1)
 
 

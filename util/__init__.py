@@ -219,7 +219,7 @@ def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti', no
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
         elif 'label' in key:
             if dataset_name in ['kitti', 'carla', 'semanticPOSS']:
-                if norm_label:
+                if norm_label and key != 'synth_label':
                     value = tanh_to_sigmoid(value)
                     value = torch.round(value * (10.0 if  dataset_name == 'semanticPOSS' else 19.0))
                 label_tensor = _map(_map(value.squeeze(dim=1).long(), data_maps.learning_map_inv), data_maps.color_map)

@@ -955,8 +955,8 @@ class ResnetGenerator(nn.Module):
         if encode_layer is not None:
             model = model[:encode_layer]
         self.model = nn.Sequential(*model)
-        if have_cond_modality:
-            self.cond_processor = nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1, bias=True)
+        # if have_cond_modality:
+        #     self.cond_processor = nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1, bias=True)
 
     def forward(self, input, layers=[], encode_only=False, cond=None, cond_layer=None):
         """Standard forward"""

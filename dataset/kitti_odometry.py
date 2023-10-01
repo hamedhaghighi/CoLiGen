@@ -36,7 +36,11 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         is_ref_semposs=False):
         super().__init__()
         self.root = osp.join(root, "sequences")
-        self.subsets = np.asarray(getattr(DATA.split, split))
+        if '/' in split:
+            s1 , s2 = split.split('/')
+            self.subsets = np.array(getattr(DATA.split, s1) + getattr(DATA.split, s2))
+        else:
+            self.subsets = np.asarray(getattr(DATA.split, split))
         self.shape = tuple(shape)
         self.min_depth = DATA.min_depth
         self.max_depth = DATA.max_depth
