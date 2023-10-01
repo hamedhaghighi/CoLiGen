@@ -267,6 +267,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             out["rgb"][black_pos] = avg_color
         out = self.preprocess(out)
         out = self.transform(out)
+        out['path'] = points_path
         return out
 
     def __len__(self):
