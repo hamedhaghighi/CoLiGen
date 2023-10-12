@@ -41,17 +41,17 @@ def inv_to_xyz(inv, lidar, tol=1e-8):
 
 def main(runner_cfg_path=None):
     
-    ref_dataset_name = 'kitti'
+    ref_dataset_name = 'semanticPOSS'
     split = 'train/val'
-    # if ref_dataset_name == 'semanticPOSS':
-    #     seqs = [0, 0, 5] 
-    #     ids = [75, 385, 200]
-    # else:
-    #     seqs = [0, 0,  2, 5]
-    #     ids = [1, 268, 345, 586]
+    if ref_dataset_name == 'semanticPOSS':
+        seqs = [0, 0, 5] 
+        ids = [75, 385, 200]
+    else:
+        seqs = [0, 0,  2, 5]
+        ids = [1, 268, 345, 586]
 
-    seqs = [0, 0]
-    ids = [0, 1]
+    # seqs = [0, 0]
+    # ids = [0, 1]
     torch.manual_seed(0)
     np.random.seed(0)
     random.seed(0)
@@ -60,7 +60,7 @@ def main(runner_cfg_path=None):
     ## test whole code fast
 
     ds_synth_name = 'carla'
-    ds_real_name = 'kitti'
+    ds_real_name = 'semanticPOSS'
     gpu_id = 0
     device = torch.device('cuda:{}'.format(gpu_id))
     ds_cfg_A = make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{ds_synth_name}_cfg.yml', 'r')))
@@ -111,7 +111,7 @@ def main(runner_cfg_path=None):
     data_list = sim_dataset.datalist
     dataset_A_datalist = np.array(data_list)
     dataset_A_selected_idx = []
-    n_sub_sample = 100
+    n_sub_sample = min(len(real_dataset), 5000)
     for seq, id in zip(seqs, ids):
         pcl_file_path = os.path.join(ds_cfg_A.data_dir, 'sequences', str(seq).zfill(2), 'velodyne', str(id).zfill(6)+('.bin' if ds_cfg_A.is_raw else '.npy'))
         dataset_A_selected_idx.append(np.where(dataset_A_datalist == pcl_file_path)[0][0])

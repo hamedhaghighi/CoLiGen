@@ -128,6 +128,7 @@ def main(runner_cfg_path=None):
     parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
     parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
+    parser.add_argument('--on_real', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
     
     cl_args = parser.parse_args()
     if runner_cfg_path is not None:
@@ -139,10 +140,18 @@ def main(runner_cfg_path=None):
         seqs = [0, 0, 5] if not cl_args.fast_test else [0, 0 , 0]
         ids = [75, 385, 200] if not cl_args.fast_test else [1, 2, 3]
     else:
-        seqs = [0, 0,  2, 5] if not cl_args.fast_test else [0, 0 , 0]
-        ids = [1, 268, 345, 586] if not cl_args.fast_test else [1, 2, 3]
-
+        seqs = [0, 0,1, 1, 2, 5] if not cl_args.fast_test else [0, 0 , 0]
+        ids = [1, 268,237, 158, 345, 586] if not cl_args.fast_test else [1, 2, 3]
+    if cl_args.on_real:
+        if cl_args.ref_dataset_name == 'semanticPOSS':
+            seqs = [4, 00, 00] 
+            ids = [141, 450, 475]
+        else:
+            seqs = [0, 2,  10, 5] 
+            ids = [3309, 229, 378, 2041]
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load)
+    if cl_args.on_real:
+        opt.dataset.dataset_A.name = cl_args.ref_dataset_name
     opt.model.norm_label = cl_args.norm_label
     torch.manual_seed(opt.training.seed)
     np.random.seed(opt.training.seed)
@@ -217,10 +226,10 @@ def main(runner_cfg_path=None):
     for i, idx in enumerate(dataset_A_selected_idx):
         data = val_dataset[idx]
         if is_two_dataset:
-            data['A'] = {k: v.unsqueeze(0) for k, v in data['A'].items()}
-            data['B'] = {k: v.unsqueeze(0) for k, v in data['B'].items()}
+            data['A'] = {k: v.unsqueeze(0) for k, v in data['A'].items() if not isinstance(v, str)}
+            data['B'] = {k: v.unsqueeze(0) for k, v in data['B'].items()  if not isinstance(v, str)}
         else:
-            data = {k: v.unsqueeze(0) for k, v in data.items()}
+            data = {k: v.unsqueeze(0) for k, v in data.items()  if not isinstance(v, str)}
         model.set_input(data)
         with torch.no_grad():
             model.forward()
@@ -258,7 +267,7 @@ def main(runner_cfg_path=None):
         seq = seqs[i]
         _id = ids[i]
         # if is_two_dataset:
-        visualizer.display_current_results('',current_visuals, [seq, _id, cl_args.on_input],ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_ref,\
+        visualizer.display_current_results('',current_visuals, [seq, _id, cl_args.on_input, cl_args.on_real],ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_ref,\
                 cl_args.ref_dataset_name ,lidar, save_img=True)
         # else:
             # visualizer.display_current_results('', current_visuals, (seq, id),ds_cfg, opt.dataset.dataset_A.name, lidar, save_img=True)

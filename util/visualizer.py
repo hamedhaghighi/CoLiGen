@@ -141,7 +141,7 @@ class Visualizer():
             if grid.max() <= 1.0:
                 grid = grid * 255.0
             im_grid = Image.fromarray(grid.transpose(1,2,0).astype(np.uint8))
-            folder_name = 'seq_' + str(step[0]).zfill(2) + '_id_' + str(step[1]).zfill(6) + ('_on_input' if step[2] else '') 
+            folder_name = 'seq_' + str(step[0]).zfill(2) + '_id_' + str(step[1]).zfill(6) + ('_on_input' if step[2] else '') + ('_real' if step[3] else '') 
             img_folder_dir = os.path.join(self.exp_dir,'TB_test', 'img_results', folder_name)
             os.makedirs(img_folder_dir, exist_ok=True)
             im_grid.save(os.path.join(img_folder_dir, tag.replace('/', '_') + '.png'))
@@ -167,7 +167,7 @@ class Visualizer():
                     visuals[k] = torch.stack(image_list, dim=0).permute(0, 3, 1, 2)
             for k , img_tensor in visuals.items():
                 colorise = False if  any([k_ in k for k_ in ['points', 'label', 'rgb']]) else True
-                cmap = 'viridis' if ('reflectance' in k) else ('gray' if 'mask' in k else 'turbo')
+                cmap = 'viridis' if ('reflectance' in k) else ('gray' if 'mask' in k and not 'logit' in k else 'turbo')
                 self.log_imgs(img_tensor, phase + '/' + k, g_step, colorise, cmap, save_img, dataset_name)
         if lidar_B is not None:
             domain_A_keys = [k for k in list(current_visuals.keys()) if not 'B' in k and not 'synth' in k]
