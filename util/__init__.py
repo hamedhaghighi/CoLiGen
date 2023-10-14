@@ -108,6 +108,7 @@ def fetch_reals(data, lidar, device, norm_label=False):
         batch['label'] = sigmoid_to_tanh(data['label']) if norm_label else data['label']
     for k , v in batch.items():
         batch[k] = v.to(device)
+    batch['path'] = data['path']
     return batch
 
 

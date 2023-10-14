@@ -9,12 +9,15 @@ from util import _map
 
 def load_datalist(root):
     subsets = range(10)
-    datalist = []
+    datalist_label = []
+    datalist_points = []
     for subset in subsets:
         subset_dir = osp.join(root, str(subset).zfill(2))
-        sub_point_paths = sorted(glob(osp.join(subset_dir, "labels/*")))
-        datalist += list(sub_point_paths)
-    return datalist
+        sub_label_path = sorted(glob(osp.join(subset_dir, "labels/*")))
+        sub_point_path = sorted(glob(osp.join(subset_dir, "velodyne/*")))
+        datalist_label += list(sub_label_path)
+        datalist_points += list(sub_point_path)
+    return np.array(datalist_label), np.array(datalist_points)
 
 
 
@@ -26,11 +29,21 @@ def main():
     data_dir = osp.join(ds_cfg['data_dir'], "sequences")
     label_id_list = list(ds_cfg['labels'].keys())
     cm = plt.get_cmap('gist_rainbow')
-
-
     hist = dict()
-    label_path_list = load_datalist(data_dir)
-    for l_p in tqdm(label_path_list):
+    label_path_list, point_path_list = load_datalist(data_dir)
+    idx_array = np.arange(len(label_path_list))
+    np.random.shuffle(idx_array)
+    label_path_list, point_path_list = label_path_list[idx_array][:5000], point_path_list[idx_array][:5000]
+    mu, std = np.zeros(5), np.zeros(5)
+    n_points = 0
+    for p_l, l_p in tqdm(zip(point_path_list,label_path_list)):
+        point_cloud = np.fromfile(p_l, dtype=np.float32).reshape((-1, 4))
+        n_points += len(point_cloud)
+        depth = np.linalg.norm(point_cloud[:, :3], ord=2, axis=1)
+        mu[0] += depth.sum()
+        mu[1:] += point_cloud.sum(axis=0)
+        std[0] += (depth** 2).sum() 
+        std[1:] += (point_cloud** 2).sum(axis=0)
         label_id_array = np.fromfile(l_p, dtype=np.int32)
         label_id_array = label_id_array & 0xFFFF
         label_id_array = _map(label_id_array, ds_cfg['learning_map'])
@@ -38,29 +51,33 @@ def main():
         for id in label_id_list:
             s = (label_id_array == id).sum()
             if s > 0:
-                if ds_cfg['labels'][id] in hist:
-                    hist[ds_cfg['labels'][id]] += s
+                if id in hist:
+                    hist[id] += s
                 else:
-                    hist[ds_cfg['labels'][id]] = s
-        
-    # Plot the histogram
-    num_label = len(list(hist.keys()))
-    color_list = [cm(i/num_label) for i in range(num_label)]
-    np.random.shuffle(color_list)
-    classes = np.arange(num_label)
-    for i, (k , v) in enumerate(hist.items()):
-        bar = plt.bar([i], [v], label=k)
-        bar[0].set_color(color_list[i])
-    plt.xlabel('Semantic Label')
-    plt.ylabel('Frequency')
-    plt.title(f'Histogram of Semantic Labels in {dataset_name} Dataset')
-    plt.xticks(classes)
-    plt.legend()
-    ax = plt.gca()
-    leg = ax.get_legend()
-    for i, lgh in enumerate(leg.legendHandles):
-        lgh.set_color(color_list[i])
-    plt.show()
+                    hist[id] = s
+    mu = mu/n_points
+    std = np.sqrt((std/n_points) - mu**2)
+    print('mu:', mu)
+    print('std:', std)
+    print('hist', {k:v/n_points for k ,v in hist.items()})
+    # # Plot the histogram
+    # num_label =len(hist)
+    # color_list = [cm(i/num_label) for i in range(num_label)]
+    # np.random.shuffle(color_list)
+    # classes = np.arange(num_label)
+    # for i, (k , v) in enumerate(hist.items()):
+    #     bar = plt.bar([i], [v], label=k)
+    #     bar[0].set_color(color_list[i])
+    # plt.xlabel('Semantic Label')
+    # plt.ylabel('Frequency')
+    # plt.title(f'Histogram of Semantic Labels in {dataset_name} Dataset')
+    # plt.xticks(classes)
+    # plt.legend()
+    # ax = plt.gca()
+    # leg = ax.get_legend()
+    # for i, lgh in enumerate(leg.legendHandles):
+    #     lgh.set_color(color_list[i])
+    # plt.show()
 
 if __name__ == "__main__":
     main()
