@@ -122,14 +122,17 @@ def main(runner_cfg_path=None):
     parser.add_argument('--cfg', type=str, default='', help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
+    parser.add_argument('--seg_cfg_path', type=str, default='', help='Path of segmentator cfg')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
     parser.add_argument('--test', action='store_true', help='fast test of experiment')
+    parser.add_argument('--map_label', action='store_true', help='map predicted labels in the case of semposs')
     parser.add_argument('--norm_label', action='store_true', help='normalise labels')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--ref_dataset_name', type=str, default='', help='reference dataset name for measuring unsupervised metrics')
     parser.add_argument('--n_fid', type=int, default=1000, help='num of samples for calculation of fid')
     parser.add_argument('--gpu', type=int, default=0, help='GPU no')
     parser.add_argument('--on_input', action='store_true', help='unsupervised metrics is computerd on dataset A')
+    parser.add_argument('--on_real', action='store_true', help='if input is real data')
     parser.add_argument('--no_inv', action='store_true', help='use it to calc unsupervised metrics on input inv, in case modality_B does not contain inv')
     cl_args = parser.parse_args()
     torch.cuda.set_device(f'cuda:{cl_args.gpu}')
@@ -137,8 +140,9 @@ def main(runner_cfg_path=None):
         cl_args.cfg = runner_cfg_path
     if 'checkpoints' in cl_args.cfg:
         cl_args.load = cl_args.cfg.split(os.path.sep)[1]
-
     opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load, cl_args.test)
+    if cl_args.on_real:
+        opt.dataset.dataset_A.name = cl_args.ref_dataset_name
     opt.model.norm_label = cl_args.norm_label
     torch.manual_seed(opt.training.seed)
     np.random.seed(opt.training.seed)
@@ -185,7 +189,7 @@ def main(runner_cfg_path=None):
     g_steps = 0
     min_fid = 10000
     if cl_args.ref_dataset_name == 'kitti':
-        ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
+        ignore_label = [0, 2, 3, 4, 6, 5, 7, 8, 10, 12, 16]
     elif cl_args.ref_dataset_name == 'semanticPOSS':
         ignore_label = [0, 3, 9]
 
@@ -194,7 +198,7 @@ def main(runner_cfg_path=None):
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)  
     test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False, is_ref_semposs=is_ref_semposs)
     with torch.no_grad():
-        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
+        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name if cl_args.seg_cfg_path == '' else 'synth', cfg_path=cl_args.seg_cfg_path).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut
@@ -273,6 +277,9 @@ def main(runner_cfg_path=None):
         fid_samples = [] if fid_cls is not None else None
         iou_list = []
         m_acc_list = []
+        rec_list = []
+        prec_list = []
+        label_map = ds_cfg_ref.kitti_to_POSS_map if is_ref_semposs and cl_args.map_label else None
         for i in range(n_val_batch):
             data = next(val_dl_iter)
             model.set_input(data)
@@ -308,9 +315,11 @@ def main(runner_cfg_path=None):
                 synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
                 fid_samples.append(synth_data)
                 if not opt.training.isTrain:
-                    iou, m_acc = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'] , fetched_data['lwo'], ignore=ignore_label)
+                    iou, m_acc, prec, rec = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'] , fetched_data['lwo'], ignore=ignore_label, label_map=label_map)
                     iou_list.append(iou.cpu().numpy())
                     m_acc_list.append(m_acc.cpu().numpy())
+                    prec_list.append(prec.cpu().numpy())
+                    rec_list.append(rec.cpu().numpy())
 
             if i == dis_batch_ind:
                 current_visuals = model.get_current_visuals()
@@ -326,14 +335,16 @@ def main(runner_cfg_path=None):
         if not opt.training.isTrain:
             avg_m_acc = np.array(m_acc_list).mean()
             iou_avg = np.array(iou_list).mean(axis=0)
-            label_names = seg_model.learning_class_to_label_name(np.arange(len(iou_avg)))
+            prec_avg = np.array(prec_list).mean(axis=0)
+            rec_avg = np.array(rec_list).mean(axis=0)
+            label_names = seg_model.learning_class_to_label_name(np.arange(len(iou_avg)), ds_cfg_ref)
             print('avg seg acc:', np.round(avg_m_acc, 2))
             print('iou avg:')
             print_str = ''
             cross_class_iou_avg = iou_avg[iou_avg != 0.0].mean()
-            for l, iou in zip(label_names, iou_avg):
+            for i, (l, iou) in enumerate(zip(label_names, iou_avg)):
                 if iou > 0.0:
-                    print_str = print_str + f'{l}:{np.round(iou, 2)} '
+                    print_str = print_str + f'{l}:{np.round(iou, 4)} precision:{np.round(prec_avg[i],4)}, recall:{np.round(rec_avg[i],4)} '
             print(print_str)
             print('cross-class iou:', np.round(cross_class_iou_avg, 2))
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}

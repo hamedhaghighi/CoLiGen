@@ -172,7 +172,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
         out["mask"] = mask
         out["points"] /= self.max_depth  # unit space
         for key in out.keys():
-            if key == 'label' and self.fill_in_label:
+            if (key == 'label' and self.fill_in_label) or key == 'rgb':
                 continue
             if key == 'rgb':
                 out[key][~np.repeat(mask[:, :, None], 3, 2)] = 0

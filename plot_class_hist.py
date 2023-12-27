@@ -6,6 +6,7 @@ from glob import glob
 import numpy as np
 from tqdm import tqdm
 from util import _map
+from PIL import Image
 
 def load_datalist(root):
     subsets = range(10)
@@ -23,11 +24,12 @@ def load_datalist(root):
 
 def main():
     # Replace these paths with the actual paths to the KITTI dataset on your machine
+    is_raw = False
     np.random.seed(0)
     dataset_name = 'carla'
     ds_cfg = yaml.safe_load(open(f'configs/dataset_cfg/{dataset_name}_cfg.yml', 'r'))
     data_dir = osp.join(ds_cfg['data_dir'], "sequences")
-    label_id_list = list(ds_cfg['labels'].keys())
+    label_id_list = list(ds_cfg['learning_map'].keys())
     cm = plt.get_cmap('gist_rainbow')
     hist = dict()
     label_path_list, point_path_list = load_datalist(data_dir)
@@ -36,18 +38,29 @@ def main():
     label_path_list, point_path_list = label_path_list[idx_array][:5000], point_path_list[idx_array][:5000]
     mu, std = np.zeros(5), np.zeros(5)
     n_points = 0
+    max_depth = 0
     for p_l, l_p in tqdm(zip(point_path_list,label_path_list)):
-        point_cloud = np.fromfile(p_l, dtype=np.float32).reshape((-1, 4))
+        if is_raw:
+            point_cloud = np.fromfile(p_l, dtype=np.float32).reshape((-1, 4))
+            depth = np.linalg.norm(point_cloud[:, :3], ord=2, axis=1)
+        else:
+            point_cloud = np.load(p_l).astype(np.float32)
+            depth = point_cloud[0].reshape(-1)
+            point_cloud = np.transpose(point_cloud[1:5].reshape(4, -1), (1,0))
         n_points += len(point_cloud)
-        depth = np.linalg.norm(point_cloud[:, :3], ord=2, axis=1)
+        max_depth = max(max_depth, np.max(depth))
         mu[0] += depth.sum()
         mu[1:] += point_cloud.sum(axis=0)
         std[0] += (depth** 2).sum() 
         std[1:] += (point_cloud** 2).sum(axis=0)
-        label_id_array = np.fromfile(l_p, dtype=np.int32)
-        label_id_array = label_id_array & 0xFFFF
-        label_id_array = _map(label_id_array, ds_cfg['learning_map'])
-        label_id_array = _map(label_id_array, ds_cfg['learning_map_inv'])
+        if is_raw:
+            label_id_array = np.fromfile(l_p, dtype=np.int32)
+            label_id_array = label_id_array & 0xFFFF
+            label_id_array = _map(label_id_array, ds_cfg['learning_map'])
+            label_id_array = _map(label_id_array, ds_cfg['learning_map_inv'])
+        else:
+            label_id_array = np.array(Image.open(l_p))
+            label_id_array = _map(label_id_array, ds_cfg['learning_map_inv'])
         for id in label_id_list:
             s = (label_id_array == id).sum()
             if s > 0:
@@ -57,6 +70,7 @@ def main():
                     hist[id] = s
     mu = mu/n_points
     std = np.sqrt((std/n_points) - mu**2)
+    print('max_depth:', max_depth)
     print('mu:', mu)
     print('std:', std)
     print('hist', {k:v/n_points for k ,v in hist.items()})

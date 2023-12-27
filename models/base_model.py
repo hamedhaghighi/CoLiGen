@@ -50,9 +50,10 @@ class BaseModel(ABC):
             ds_B_modality = opt.dataset.dataset_B.modality
             self.visual_names.extend(['real_B_' + m for m in ds_B_modality])
             self.visual_names.extend(['real_B_mask'])
-        self.visual_names.extend(['real_mask', 'synth_mask', 'synth_mask_logit'])
-        self.visual_names.append('synth_inv_orig')
-        self.visual_names.append('synth_reflectance_orig')
+        if 'mask' in self.opt.model.out_ch:
+            self.visual_names.extend(['real_mask', 'synth_mask', 'synth_mask_logit'])
+            self.visual_names.append('synth_inv_orig')
+            self.visual_names.append('synth_reflectance_orig')
         self.visual_names = [s.replace('depth','inv') for s in self.visual_names]
         self.optimizers = []
         self.image_paths = []

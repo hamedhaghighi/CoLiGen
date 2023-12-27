@@ -120,8 +120,9 @@ def check_exp_exists(opt, cfg_args):
 def main(runner_cfg_path=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='', help='Path of the config file')
+    parser.add_argument('--data_folder', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
-    parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
+    parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--norm_label', action='store_true', help='normalise labels')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
@@ -179,7 +180,7 @@ def main(runner_cfg_path=None):
 
     is_ref_semposs = cl_args.ref_dataset_name == 'semanticPOSS'
     split = 'train/val'
-    val_dl, val_dataset = get_data_loader(opt, split, opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)
+    val_dl, val_dataset = get_data_loader(opt, split, opt.training.batch_size, shuffle=False, is_ref_semposs=False)
     # test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     ## initilisation of the model for netF in cut
@@ -189,7 +190,7 @@ def main(runner_cfg_path=None):
     n_val_batch = 2 if cl_args.fast_test else  len(val_dl)
     ##### validation
     model.train(False)
-    _n_classes = len(ds_cfg_ref.learning_map_inv)
+    _n_classes = len(ds_cfg.learning_map_inv)
     _colors = cm.turbo(np.asarray(range(_n_classes)) / (_n_classes - 1))[:, :3] * 255
     palette = list(np.uint8(_colors).flatten())
     tag = 'val' if opt.training.isTrain else 'test'
@@ -208,27 +209,30 @@ def main(runner_cfg_path=None):
             if 'mask' in fetched_data:
                 synth_mask = fetched_data['mask']
         else:
-            if hasattr(model, 'synth_reflectance'):
-                synth_reflectance = model.synth_reflectance 
             if hasattr(model, 'synth_mask'):
                 synth_mask = model.synth_mask
+            if hasattr(model, 'synth_reflectance') and not cl_args.no_inv:
+                synth_reflectance = model.synth_reflectance 
+            else:
+                synth_reflectance = fetched_data['reflectance'] * synth_mask
             if hasattr(model, 'synth_inv') and not cl_args.no_inv:
                 synth_inv = model.synth_inv
             else:
                 synth_inv = fetched_data['inv'] * synth_mask
         synth_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
+        synth_depth = synth_depth * synth_mask
         synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
         synth_reflectance = tanh_to_sigmoid(synth_reflectance)
         synth_data = torch.cat([synth_depth, synth_points, synth_reflectance], dim=1)
-        fetched_data_path, label_tensor = fetched_data['path'], fetched_data['lwo']
+        fetched_data_path, label_tensor = fetched_data['path'], fetched_data['lwo'] * synth_mask
         for f_d, s_d, l_t in zip(fetched_data_path, synth_data, label_tensor):
-            velo_path = f_d.replace('projected', 'projected_2')
+            velo_path = f_d.replace('projected', cl_args.data_folder)
             os.makedirs(os.path.sep.join(velo_path.split(os.path.sep)[:-1]), exist_ok=True)
             os.makedirs(os.path.sep.join(velo_path.replace('velodyne', 'labels').split(os.path.sep)[:-1]), exist_ok=True)
             np.save(velo_path, s_d.cpu().numpy())
             labels = Image.fromarray(l_t.squeeze().cpu().numpy().astype('uint8'), mode="P")
             labels.putpalette(palette)
-            labels.save(velo_path.replace('velodyne', 'label').replace('.npy', '.png'))
+            labels.save(velo_path.replace('velodyne', 'labels').replace('.npy', '.png'))
         val_tq.update(1)
 
 

@@ -56,7 +56,8 @@ def visualize_tensor(pts, depth, tag, ds_name):
     # render.setup_camera(60.0, [0, 0, 0], [-0.2, 0, 0.1], [0, 0, 1])
     # render.setup_camera(60.0, [0, 0, 0], [-0.8, -0.1, 0.3], [0, 0, 1])
     if ds_name == 'kitti' or ds_name == 'carla':
-        render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.5], [0, 0, 1])
+        # render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.5], [0, 0, 1])
+        render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.2], [0, 0, 1])
     else:
         render.setup_camera(60.0, [0, 0, 0], [0.08, -0.1, 0.5], [0, 0, 1])
     pts_img = render.render_to_image()

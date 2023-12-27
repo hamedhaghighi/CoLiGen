@@ -70,6 +70,12 @@ class iouEval:
     fn = conf.sum(dim=0) - tp
     return tp, fp, fn
 
+  def getPreRec(self):
+    tp, fp, fn = self.getStats()
+    precision = tp/(tp + fp + 1e-15)
+    recall = tp / (tp + fn + 1e-15)
+    return precision, recall
+
   def getIoU(self):
     tp, fp, fn = self.getStats()
     intersection = tp

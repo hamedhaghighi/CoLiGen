@@ -122,6 +122,7 @@ def main(runner_cfg_path=None):
     parser.add_argument('--cfg', type=str, default='', help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
+    parser.add_argument('--seg_cfg_path', type=str, default='', help='Path of segmentator cfg')
     parser.add_argument('--fast_test', action='store_true', help='fast test of experiment')
     parser.add_argument('--norm_label', action='store_true', help='normalise labels')
     parser.add_argument('--load', type=str, default='', help='the name of the experiment folder while loading the experiment')
@@ -205,7 +206,8 @@ def main(runner_cfg_path=None):
     
     # test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
     with torch.no_grad():
-        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
+        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name if cl_args.seg_cfg_path == '' else 'synth', cfg_path=cl_args.seg_cfg_path).to(device)
+        # seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut
@@ -226,10 +228,16 @@ def main(runner_cfg_path=None):
     for i, idx in enumerate(dataset_A_selected_idx):
         data = val_dataset[idx]
         if is_two_dataset:
-            data['A'] = {k: v.unsqueeze(0) for k, v in data['A'].items() if not isinstance(v, str)}
-            data['B'] = {k: v.unsqueeze(0) for k, v in data['B'].items()  if not isinstance(v, str)}
+            for k ,v in data['A'].items():
+                if k != 'path':
+                    data['A'][k] = v.unsqueeze(0)
+            for k ,v in data['B'].items():
+                if k != 'path':
+                    data['B'][k] = v.unsqueeze(0)
         else:
-            data = {k: v.unsqueeze(0) for k, v in data.items()  if not isinstance(v, str)}
+            for k ,v in data.items():
+                if k != 'path':
+                    data[k] = v.unsqueeze(0)
         model.set_input(data)
         with torch.no_grad():
             model.forward()

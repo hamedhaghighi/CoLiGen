@@ -13,7 +13,7 @@ import os
 from util import _map
 
 class Segmentator(nn.Module):
-  def __init__(self, path_append="", strict=False, dataset_name = 'kitti'):
+  def __init__(self, path_append="", strict=False, dataset_name = 'kitti', cfg_path=None):
     super().__init__()
     if dataset_name == 'kitti':
       path = os.path.join('rangenet', 'rangenet_weights')
@@ -22,9 +22,13 @@ class Segmentator(nn.Module):
     elif dataset_name == 'semanticPOSS':
       path = os.path.join('rangenet', 'rangenet_weights_sp')
       self.ARCH = yaml.safe_load(open('configs/sp_arch_cfg.yaml', 'r'))
-      self.DATA = yaml.safe_load(open('configs/sp_data_cfg.yaml', 'r'))      
-    self.sensor_img_means = torch.tensor(self.DATA["sensor"]["img_means"], dtype=torch.float)
-    self.sensor_img_stds = torch.tensor(self.DATA["sensor"]["img_stds"], dtype=torch.float)
+      self.DATA = yaml.safe_load(open('configs/sp_data_cfg.yaml', 'r'))
+    elif dataset_name == 'synth':
+      path = cfg_path
+      self.ARCH = yaml.safe_load(open(os.path.join(path, 'arch_cfg.yaml'), 'r'))
+      self.DATA = yaml.safe_load(open(os.path.join(path, 'data_cfg.yaml'), 'r'))
+    self.sensor_img_means = torch.tensor(self.ARCH["dataset"]["sensor"]["img_means"], dtype=torch.float)
+    self.sensor_img_stds = torch.tensor(self.ARCH["dataset"]["sensor"]["img_stds"], dtype=torch.float)
     self.nclasses = len(self.DATA["learning_map_inv"])
     self.strict = False
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -39,8 +43,8 @@ class Segmentator(nn.Module):
     # do a pass of the backbone to initialize the skip connections
     stub = torch.zeros((1,
                         self.backbone.get_input_depth(),
-                        self.DATA["sensor"]["img_prop"]["height"],
-                        self.DATA["sensor"]["img_prop"]["width"]))
+                        self.ARCH["dataset"]["sensor"]["img_prop"]["height"],
+                        self.ARCH["dataset"]["sensor"]["img_prop"]["width"]))
 
     if torch.cuda.is_available():
       stub = stub.cuda()
@@ -184,6 +188,8 @@ class Segmentator(nn.Module):
       torch.save(self.CRF.state_dict(), logdir +
                  "/segmentation_CRF" + suffix)
 
-  def learning_class_to_label_name(self, c):
-    class_array = _map(c, self.DATA['learning_map_inv'])
+  def learning_class_to_label_name(self, c, ds_cfg_ref=None):
+    class_array = _map(c, ds_cfg_ref.learning_map_inv if ds_cfg_ref is not None else self.DATA['learning_map_inv'])
+    if ds_cfg_ref is not None:
+      return [ds_cfg_ref.labels[c] for c in class_array]
     return [self.DATA['labels'][c] for c in class_array]
