@@ -4,8 +4,6 @@ This repository mainly contains the Semantic-CARLA dataset and the implementatio
 <p align="center"><img src="readme_materials/entire_framework.png" alt="drawing" width="80%"/></p>
 <p align="center"><img src="readme_materials/training_diag.png" alt="drawing" width="80%"/></p>
 
-<p align="center"> <a href="https://drive.google.com/file/d/16g_auVrOOaZKLONwjdmndrd6Cj9VMKHY/view?usp=sharing"><img src="figures/vid_snapshot.png" width="80%"></a></p>
-
 ## Table of Contents
 - [Installation](#installation)
 - [Training](#training)
