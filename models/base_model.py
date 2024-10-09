@@ -242,7 +242,7 @@ class BaseModel(ABC):
             # print(f'cannot find the load path {load_path}')
             raise Exception(f'cannot find the load path {load_path}')
         else:
-            state_dict = torch.load(load_path)
+            state_dict = torch.load(load_path, map_location=str(self.device))
             for name in self.model_names:
                 if isinstance(name, str):
                     net = getattr(self, 'net' + name)

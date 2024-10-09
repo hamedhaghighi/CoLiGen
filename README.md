@@ -1,5 +1,5 @@
-# :page_with_curl: Contrastive Learning-Based Framework for Sim-to-Real Mapping of Lidar Point Clouds in Autonomous Driving Systems
-This repository mainly contains the Semantic-CARLA dataset and the implementation of the CLS2R framework explained in our [paper](https://arxiv.org/abs/2312.15817).
+# :page_with_curl: A Unified Generative Framework for Realistic Lidar Simulation in Autonomous Driving Systems
+This repository mainly contains the Semantic-CARLA dataset and the PyTorch implementation of the CoLiGen model explained in our [paper]().
 
 <p align="center"><img src="readme_materials/entire_framework.png" alt="drawing" width="80%"/></p>
 <p align="center"><img src="readme_materials/training_diag.png" alt="drawing" width="80%"/></p>
@@ -15,12 +15,12 @@ This repository mainly contains the Semantic-CARLA dataset and the implementatio
 ### Dependencies
 - Create a conda environment and activate it.
     ```
-    conda create --name cls2r python=3.6
+    conda create --name coligen python=3.6
     ```
 
 
     ```
-    conda activate cls2r
+    conda activate coligen
     ```
 - Install PyTorch following [official instructions](https://pytorch.org/get-started/locally/)
 

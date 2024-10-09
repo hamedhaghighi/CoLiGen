@@ -52,6 +52,8 @@ class M_parser():
             self.dataset.dataset_A.data_dir = data_dir
         if data_dir_B != '':
             self.dataset.dataset_B.data_dir = data_dir_B
+        if load != '':
+            self.training.checkpoints_dir = os.path.sep.join(cfg_path.split(os.sep)[:-2])
         self.training.test = True
         self.model.isTrain = self.training.isTrain = not self.training.test
         self.training.epoch_decay = self.training.n_epochs//2
@@ -135,14 +137,14 @@ def main(runner_cfg_path=None):
     if runner_cfg_path is not None:
         cl_args.cfg = runner_cfg_path
     if 'checkpoints' in cl_args.cfg:
-        cl_args.load = cl_args.cfg.split(os.path.sep)[1]
+        cl_args.load = cl_args.cfg.split(os.path.sep)[-2]
     split = 'train/val'
     if cl_args.ref_dataset_name == 'semanticPOSS':
         seqs = [0, 0, 5] if not cl_args.fast_test else [0, 0 , 0]
         ids = [75, 385, 200] if not cl_args.fast_test else [1, 2, 3]
     else:
-        seqs = [0, 0,1, 1, 2, 5] if not cl_args.fast_test else [0, 0 , 0]
-        ids = [1, 268,237, 158, 345, 586] if not cl_args.fast_test else [1, 2, 3]
+        seqs = [0, 0, 0, 0, 0, 0, 0, 1,1,1,1,1,1,1, 1 ,1 ,1 ,1 ] if not cl_args.fast_test else [1, 0 , 0]
+        ids = [597, 598, 599, 600, 601, 602, 603, 897, 898, 899, 900, 901, 902, 903, 904, 905, 906, 907] if not cl_args.fast_test else [237, 2, 3]
     if cl_args.on_real:
         if cl_args.ref_dataset_name == 'semanticPOSS':
             seqs = [4, 00, 00] 
@@ -265,12 +267,13 @@ def main(runner_cfg_path=None):
         synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
         pred, _ = seg_model(synth_data * fetched_data['mask'])
         pred = pred.argmax(dim=1)
+        model.real_label = model.real_label * fetched_data['mask'].long()
         current_visuals = model.get_current_visuals()
         # if cl_args.on_input :
         #     current_visuals['synth_inv'] = synth_inv
         #     current_visuals['synth_mask'] = synth_mask
         #     current_visuals['synth_reflectance'] = synth_reflectance
-        current_visuals['synth_label'] = pred
+        current_visuals['synth_label'] = pred * fetched_data['mask'].squeeze().long()
         # current_visuals = {k: v for k ,v in current_visuals.items() if 'B' not in k}
         seq = seqs[i]
         _id = ids[i]

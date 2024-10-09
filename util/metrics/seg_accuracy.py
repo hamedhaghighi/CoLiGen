@@ -3,12 +3,14 @@ from rangenet.tasks.semantic.modules.ioueval import iouEval
 import torchvision.transforms.functional as TF
 from util import _map
 
-def compute_seg_accuracy(seg_model, synth_data, gt_labels, ignore=[], label_map=None):
+def compute_seg_accuracy(seg_model, synth_data, gt_labels, ignore=[], label_map=None, fetched_mask=None):
     # H , W = 64, 2048
     # synth_data = TF.resize(synth_data, (H, W), TF.InterpolationMode.NEAREST)
     # gt_labels = TF.resize(gt_labels, (H, W), TF.InterpolationMode.NEAREST)
     pred, _ = seg_model(synth_data)
     pred = pred.argmax(dim=1)
+    if fetched_mask is not None:
+        pred = pred * fetched_mask.squeeze()
     if label_map is not None:
         pred = _map(pred, label_map)
     gt_labels = gt_labels.long()

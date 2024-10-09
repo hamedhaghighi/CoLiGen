@@ -42,7 +42,7 @@ def inv_to_xyz(inv, lidar, tol=1e-8):
 
 
 class M_parser():
-    def __init__(self, cfg_path, data_dir, data_dir_B, load, is_test):
+    def __init__(self, cfg_path, data_dir, data_dir_B, load, is_test, batch_size):
         opt_dict = yaml.safe_load(open(cfg_path, 'r'))
         dict_class = make_class_from_dict(opt_dict)
         members = [attr for attr in dir(dict_class) if not callable(getattr(dict_class, attr)) and not attr.startswith("__")]
@@ -52,6 +52,10 @@ class M_parser():
             self.dataset.dataset_A.data_dir = data_dir
         if data_dir_B != '':
             self.dataset.dataset_B.data_dir = data_dir_B
+        if batch_size != '':
+            self.training.batch_size = int(batch_size)
+        if load != '':
+            self.training.checkpoints_dir = os.path.sep.join(cfg_path.split(os.sep)[:-2]) 
         self.training.test = is_test
         self.model.isTrain = self.training.isTrain = not self.training.test
         self.training.epoch_decay = self.training.n_epochs//2
@@ -120,6 +124,7 @@ def check_exp_exists(opt, cfg_args):
 def main(runner_cfg_path=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='', help='Path of the config file')
+    parser.add_argument('--batch_size', type=str, default='', help='batch size')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset A')
     parser.add_argument('--data_dir_B', type=str, default='', help='Path of the dataset B')
     parser.add_argument('--seg_cfg_path', type=str, default='', help='Path of segmentator cfg')
@@ -139,8 +144,8 @@ def main(runner_cfg_path=None):
     if runner_cfg_path is not None:
         cl_args.cfg = runner_cfg_path
     if 'checkpoints' in cl_args.cfg:
-        cl_args.load = cl_args.cfg.split(os.path.sep)[1]
-    opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load, cl_args.test)
+        cl_args.load = cl_args.cfg.split(os.path.sep)[-2]
+    opt = M_parser(cl_args.cfg, cl_args.data_dir, cl_args.data_dir_B, cl_args.load, cl_args.test, cl_args.batch_size)
     if cl_args.on_real:
         opt.dataset.dataset_A.name = cl_args.ref_dataset_name
     opt.model.norm_label = cl_args.norm_label
@@ -189,7 +194,7 @@ def main(runner_cfg_path=None):
     g_steps = 0
     min_fid = 10000
     if cl_args.ref_dataset_name == 'kitti':
-        ignore_label = [0, 2, 3, 4, 6, 5, 7, 8, 10, 12, 16]
+        ignore_label = [0, 2, 3, 4, 5, 7, 8, 10, 12, 16]
     elif cl_args.ref_dataset_name == 'semanticPOSS':
         ignore_label = [0, 3, 9]
 
@@ -315,7 +320,8 @@ def main(runner_cfg_path=None):
                 synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
                 fid_samples.append(synth_data)
                 if not opt.training.isTrain:
-                    iou, m_acc, prec, rec = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'] , fetched_data['lwo'], ignore=ignore_label, label_map=label_map)
+                    iou, m_acc, prec, rec = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'], fetched_data['lwo'], ignore=ignore_label,\
+                                                                  label_map=label_map)
                     iou_list.append(iou.cpu().numpy())
                     m_acc_list.append(m_acc.cpu().numpy())
                     prec_list.append(prec.cpu().numpy())
@@ -344,7 +350,8 @@ def main(runner_cfg_path=None):
             cross_class_iou_avg = iou_avg[iou_avg != 0.0].mean()
             for i, (l, iou) in enumerate(zip(label_names, iou_avg)):
                 if iou > 0.0:
-                    print_str = print_str + f'{l}:{np.round(iou, 4)} precision:{np.round(prec_avg[i],4)}, recall:{np.round(rec_avg[i],4)} '
+                    # print_str = print_str + f'{l}:{np.round(iou, 4)} precision:{np.round(prec_avg[i],4)}, recall:{np.round(rec_avg[i],4)} '
+                    print_str = print_str + f'{l}:{np.round(iou, 4)} '
             print(print_str)
             print('cross-class iou:', np.round(cross_class_iou_avg, 2))
         losses = {k: float(np.array(v).mean()) for k , v in val_losses.items()}

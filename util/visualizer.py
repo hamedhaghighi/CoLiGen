@@ -58,6 +58,7 @@ def visualize_tensor(pts, depth, tag, ds_name):
     if ds_name == 'kitti' or ds_name == 'carla':
         # render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.5], [0, 0, 1])
         render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.2], [0, 0, 1])
+        # render.setup_camera(60.0, [0, 0, 0], [-0.2, -0.4, 0.5], [0, 0, 1])
     else:
         render.setup_camera(60.0, [0, 0, 0], [0.08, -0.1, 0.5], [0, 0, 1])
     pts_img = render.render_to_image()
@@ -143,7 +144,7 @@ class Visualizer():
                 grid = grid * 255.0
             im_grid = Image.fromarray(grid.transpose(1,2,0).astype(np.uint8))
             folder_name = 'seq_' + str(step[0]).zfill(2) + '_id_' + str(step[1]).zfill(6) + ('_on_input' if step[2] else '') + ('_real' if step[3] else '') 
-            img_folder_dir = os.path.join(self.exp_dir,'TB_test', 'img_results', folder_name)
+            img_folder_dir = os.path.join(self.exp_dir,'TB_test', 'img_results_2', folder_name)
             os.makedirs(img_folder_dir, exist_ok=True)
             im_grid.save(os.path.join(img_folder_dir, tag.replace('/', '_') + '.png'))
         else:
