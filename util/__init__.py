@@ -1,33 +1,38 @@
 """This package includes a miscellaneous collection of useful helper functions."""
+
 import gc
+import os
 import os.path as osp
 
 import cv2
+import matplotlib
+import matplotlib.cm as cm
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import matplotlib
-import matplotlib.cm as cm
-import os
+
 # from util.geometry import estimate_surface_normal
 
-m2ch = {'label':1, 'rgb':3, 'reflectance':1, 'mask':1, 'inv':1, 'depth':1}
+m2ch = {"label": 1, "rgb": 3, "reflectance": 1, "mask": 1, "inv": 1, "depth": 1}
 
 
 def make_class_from_dict(opt):
     if any([isinstance(k, int) for k in opt.keys()]):
         return opt
     else:
-        class dict_class():
+
+        class dict_class:
             def __init__(self):
-                for k , v in opt.items():
-                    if isinstance(v , dict):
-                        setattr(self, k, make_class_from_dict(v)) 
+                for k, v in opt.items():
+                    if isinstance(v, dict):
+                        setattr(self, k, make_class_from_dict(v))
                     else:
                         setattr(self, k, v)
+
         return dict_class()
-    
+
+
 labels_mapping = {
     1: 0,
     5: 0,
@@ -60,29 +65,33 @@ labels_mapping = {
     26: 13,
     27: 14,
     28: 15,
-    30: 16
+    30: 16,
 }
 
 
 def prepare_data_for_seg(data, lidar, is_batch=True):
-    depth = data['depth'] * (lidar.max_depth - lidar.min_depth) + lidar.min_depth
-    points = data['points'] * lidar.max_depth
-    vol = torch.cat([depth, points, data['reflectance'], data['mask']], dim=1 if is_batch else 0)
+    depth = data["depth"] * (lidar.max_depth - lidar.min_depth) + lidar.min_depth
+    points = data["points"] * lidar.max_depth
+    vol = torch.cat(
+        [depth, points, data["reflectance"], data["mask"]], dim=1 if is_batch else 0
+    )
     return vol
- 
-def prepare_synth_for_seg(model, lidar, tag='synth'):
-    if hasattr(model, tag + '_reflectance'):
-        synth_reflectance = getattr(model, tag + '_reflectance')
-    if hasattr(model, tag + '_mask'):
-        synth_mask = getattr(model, tag + '_mask')
-    if hasattr(model, tag + '_inv'):
-        synth_inv = getattr(model, tag + '_inv')
+
+
+def prepare_synth_for_seg(model, lidar, tag="synth"):
+    if hasattr(model, tag + "_reflectance"):
+        synth_reflectance = getattr(model, tag + "_reflectance")
+    if hasattr(model, tag + "_mask"):
+        synth_mask = getattr(model, tag + "_mask")
+    if hasattr(model, tag + "_inv"):
+        synth_inv = getattr(model, tag + "_inv")
     synth_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
     synth_points = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
     synth_reflectance = tanh_to_sigmoid(synth_reflectance)
     vol = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
     return vol
- 
+
+
 def cat_modality(data_dict, modality):
     data_list = []
     for m in modality:
@@ -90,25 +99,32 @@ def cat_modality(data_dict, modality):
         data_list.append(data_dict[m])
     out = torch.cat(data_list, dim=1)
     return out
-    
+
+
 def fetch_reals(data, lidar, device, norm_label=False):
     mask = data["mask"].float()
     inv = lidar.invert_depth(data["depth"])
     inv = sigmoid_to_tanh(inv)  # [-1,1]
     inv = mask * inv + (1 - mask) * -1
-    batch = {'inv': inv, 'mask': mask, 'depth': data['depth'], 'points': data['points'], 'lwo': data['lwo']}
-    if 'reflectance' in data:
-        reflectance =  data["reflectance"] # [0, 1]
+    batch = {
+        "inv": inv,
+        "mask": mask,
+        "depth": data["depth"],
+        "points": data["points"],
+        "lwo": data["lwo"],
+    }
+    if "reflectance" in data:
+        reflectance = data["reflectance"]  # [0, 1]
         reflectance = sigmoid_to_tanh(reflectance)
         reflectance = mask * reflectance + (1 - mask) * -1
-        batch['reflectance'] = reflectance
-    if 'rgb' in data:
-        batch['rgb'] = sigmoid_to_tanh(data['rgb'])
-    if 'label' in data: 
-        batch['label'] = sigmoid_to_tanh(data['label']) if norm_label else data['label']
-    for k , v in batch.items():
+        batch["reflectance"] = reflectance
+    if "rgb" in data:
+        batch["rgb"] = sigmoid_to_tanh(data["rgb"])
+    if "label" in data:
+        batch["label"] = sigmoid_to_tanh(data["label"]) if norm_label else data["label"]
+    for k, v in batch.items():
         batch[k] = v.to(device)
-    batch['path'] = data['path']
+    batch["path"] = data["path"]
     return batch
 
 
@@ -209,26 +225,39 @@ def cycle(iterable):
             yield i
 
 
-def postprocess(synth, lidar, tol=1e-8, data_maps=None, dataset_name='kitti', norm_label=False):
+def postprocess(
+    synth, lidar, tol=1e-8, data_maps=None, dataset_name="kitti", norm_label=False
+):
     out = {}
     for key, value in synth.items():
-        if 'inv' in key:
+        if "inv" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
-            if not 'inv_orig' in key:
-                out[key.replace('inv', 'points')] = lidar.inv_to_xyz(out[key], tol)
+            if not "inv_orig" in key:
+                out[key.replace("inv", "points")] = lidar.inv_to_xyz(out[key], tol)
         elif "reflectance" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1)
-        elif 'label' in key:
-            if dataset_name in ['kitti', 'carla', 'semanticPOSS']:
-                if norm_label and key != 'synth_label':
+        elif "label" in key:
+            if dataset_name in ["kitti", "carla", "semanticPOSS"]:
+                if norm_label and key != "synth_label":
                     value = tanh_to_sigmoid(value)
-                    value = torch.round(value * (10.0 if  dataset_name == 'semanticPOSS' else 19.0))
-                label_tensor = _map(_map(value.squeeze(dim=1).long(), data_maps.learning_map_inv), data_maps.color_map)
+                    value = torch.round(
+                        value * (10.0 if dataset_name == "semanticPOSS" else 19.0)
+                    )
+                label_tensor = _map(
+                    _map(value.squeeze(dim=1).long(), data_maps.learning_map_inv),
+                    data_maps.color_map,
+                )
                 out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
-            elif dataset_name == 'nuscene':
-                label_tensor = _map(_map(_map(value.squeeze().long(), labels_mapping), data_maps.learning_map_inv), data_maps.color_map)
+            elif dataset_name == "nuscene":
+                label_tensor = _map(
+                    _map(
+                        _map(value.squeeze().long(), labels_mapping),
+                        data_maps.learning_map_inv,
+                    ),
+                    data_maps.color_map,
+                )
                 out[key] = torch.flip(label_tensor.permute(0, 3, 1, 2), dims=(1,))
-        elif 'rgb' in key:
+        elif "rgb" in key:
             out[key] = tanh_to_sigmoid(value).clamp_(0, 1) * 255.0
         else:
             out[key] = value
@@ -246,13 +275,13 @@ def save_videos(frames, filename, fps=30.0):
     cv2.destroyAllWindows()
     print("Saved:", filename)
 
+
 def colorize(tensor, cmap="turbo", vmax=1.0):
     assert tensor.ndim == 2, "got {}".format(tensor.ndim)
     normalizer = matplotlib.colors.Normalize(vmin=0.0, vmax=vmax)
     mapper = cm.ScalarMappable(norm=normalizer, cmap=cmap)
     tensor = mapper.to_rgba(tensor)[..., :3]
     return tensor
-
 
 
 def flatten(tensor_BCHW):

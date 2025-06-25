@@ -35,7 +35,7 @@ def pyramid_up(image):
     dilation = get_kernel([0, 1, 0], device).repeat(C, 1, 1, 1)
     dilated = F.conv_transpose2d(image, dilation, stride=2, padding=0, groups=C)
     padded = F.pad(dilated[..., :-1, :-1], (2, 2, 2, 2), mode="reflect")
-    gaussian = get_kernel([1, 4, 6, 4, 1], device).repeat(C, 1, 1, 1) * (scale ** 2)
+    gaussian = get_kernel([1, 4, 6, 4, 1], device).repeat(C, 1, 1, 1) * (scale**2)
     image = F.conv2d(padded, gaussian, stride=1, padding=0, groups=C)
     return image
 

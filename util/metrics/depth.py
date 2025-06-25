@@ -29,9 +29,9 @@ def compute_depth_accuracy(depth_ref, depth_gen, mask=None):
     mask = torch.ones_like(depth_ref) if mask is None else mask
     # threshold accuracy
     delta = torch.max(depth_ref / depth_gen, depth_gen / depth_ref)
-    a1 = (delta < 1.25 ** 1).float() * mask
-    a2 = (delta < 1.25 ** 2).float() * mask
-    a3 = (delta < 1.25 ** 3).float() * mask
+    a1 = (delta < 1.25**1).float() * mask
+    a2 = (delta < 1.25**2).float() * mask
+    a3 = (delta < 1.25**3).float() * mask
     a1 = a1.sum(dim=(1, 2, 3)) / mask.sum(dim=(1, 2, 3))
     a2 = a2.sum(dim=(1, 2, 3)) / mask.sum(dim=(1, 2, 3))
     a3 = a3.sum(dim=(1, 2, 3)) / mask.sum(dim=(1, 2, 3))

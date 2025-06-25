@@ -6,15 +6,17 @@ We　use the network architeture for our single-image traning setting.
 """
 
 import math
-import numpy as np
 import random
+
+import numpy as np
 import torch
 from torch import nn
-from util import m2ch
 from torch.nn import functional as F
 
+from util import m2ch
 
-def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2 ** 0.5):
+
+def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2**0.5):
     return F.leaky_relu(input + bias, negative_slope) * scale
 
 
@@ -76,8 +78,9 @@ class GumbelSigmoid(nn.Module):
     def extra_repr(self):
         return f"hard={self.hard}, eps={self.eps}"
 
+
 class FusedLeakyReLU(nn.Module):
-    def __init__(self, channel, negative_slope=0.2, scale=2 ** 0.5):
+    def __init__(self, channel, negative_slope=0.2, scale=2**0.5):
         super().__init__()
         self.bias = nn.Parameter(torch.zeros(1, channel, 1, 1))
         self.negative_slope = negative_slope
@@ -85,9 +88,7 @@ class FusedLeakyReLU(nn.Module):
 
     def forward(self, input):
         # print("FusedLeakyReLU: ", input.abs().mean())
-        out = fused_leaky_relu(input, self.bias,
-                               self.negative_slope,
-                               self.scale)
+        out = fused_leaky_relu(input, self.bias, self.negative_slope, self.scale)
         # print("FusedLeakyReLU: ", out.abs().mean())
         return out
 
@@ -102,14 +103,12 @@ def upfirdn2d_native(
     out = F.pad(out, [0, up_x - 1, 0, 0, 0, up_y - 1, 0, 0])
     out = out.view(-1, minor, in_h * up_y, in_w * up_x)
 
-    out = F.pad(
-        out, [max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
-    )
+    out = F.pad(out, [max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)])
     out = out[
         :,
         :,
-        max(-pad_y0, 0): out.shape[2] - max(-pad_y1, 0),
-        max(-pad_x0, 0): out.shape[3] - max(-pad_x1, 0),
+        max(-pad_y0, 0) : out.shape[2] - max(-pad_y1, 0),
+        max(-pad_x0, 0) : out.shape[3] - max(-pad_x1, 0),
     ]
 
     # out = out.permute(0, 3, 1, 2)
@@ -130,7 +129,9 @@ def upfirdn2d_native(
 
 
 def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
-    return upfirdn2d_native(input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1])
+    return upfirdn2d_native(
+        input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1]
+    )
 
 
 class PixelNorm(nn.Module):
@@ -138,7 +139,7 @@ class PixelNorm(nn.Module):
         super().__init__()
 
     def forward(self, input):
-        return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
+        return input * torch.rsqrt(torch.mean(input**2, dim=1, keepdim=True) + 1e-8)
 
 
 def make_kernel(k):
@@ -157,8 +158,8 @@ class Upsample(nn.Module):
         super().__init__()
 
         self.factor = factor
-        kernel = make_kernel(kernel) * (factor ** 2)
-        self.register_buffer('kernel', kernel)
+        kernel = make_kernel(kernel) * (factor**2)
+        self.register_buffer("kernel", kernel)
 
         p = kernel.shape[0] - factor
 
@@ -179,7 +180,7 @@ class Downsample(nn.Module):
 
         self.factor = factor
         kernel = make_kernel(kernel)
-        self.register_buffer('kernel', kernel)
+        self.register_buffer("kernel", kernel)
 
         p = kernel.shape[0] - factor
 
@@ -201,9 +202,9 @@ class Blur(nn.Module):
         kernel = make_kernel(kernel)
 
         if upsample_factor > 1:
-            kernel = kernel * (upsample_factor ** 2)
+            kernel = kernel * (upsample_factor**2)
 
-        self.register_buffer('kernel', kernel)
+        self.register_buffer("kernel", kernel)
 
         self.pad = pad
 
@@ -222,7 +223,7 @@ class EqualConv2d(nn.Module):
         self.weight = nn.Parameter(
             torch.randn(out_channel, in_channel, kernel_size, kernel_size)
         )
-        self.scale = math.sqrt(1) / math.sqrt(in_channel * (kernel_size ** 2))
+        self.scale = math.sqrt(1) / math.sqrt(in_channel * (kernel_size**2))
 
         self.stride = stride
         self.padding = padding
@@ -248,8 +249,8 @@ class EqualConv2d(nn.Module):
 
     def __repr__(self):
         return (
-            f'{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},'
-            f' {self.weight.shape[2]}, stride={self.stride}, padding={self.padding})'
+            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},"
+            f" {self.weight.shape[2]}, stride={self.stride}, padding={self.padding})"
         )
 
 
@@ -286,7 +287,7 @@ class EqualLinear(nn.Module):
 
     def __repr__(self):
         return (
-            f'{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})'
+            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})"
         )
 
 
@@ -339,7 +340,7 @@ class ModulatedConv2d(nn.Module):
 
             self.blur = Blur(blur_kernel, pad=(pad0, pad1))
 
-        fan_in = in_channel * kernel_size ** 2
+        fan_in = in_channel * kernel_size**2
         self.scale = math.sqrt(1) / math.sqrt(fan_in)
         self.padding = kernel_size // 2
 
@@ -354,8 +355,8 @@ class ModulatedConv2d(nn.Module):
 
     def __repr__(self):
         return (
-            f'{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}, '
-            f'upsample={self.upsample}, downsample={self.downsample})'
+            f"{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}, "
+            f"upsample={self.upsample}, downsample={self.downsample})"
         )
 
     def forward(self, input, style):
@@ -515,7 +516,7 @@ class Generator(nn.Module):
         for i in range(n_mlp):
             layers.append(
                 EqualLinear(
-                    style_dim, style_dim, lr_mul=lr_mlp, activation='fused_lrelu'
+                    style_dim, style_dim, lr_mul=lr_mlp, activation="fused_lrelu"
                 )
             )
 
@@ -551,11 +552,11 @@ class Generator(nn.Module):
 
         for layer_idx in range(self.num_layers):
             res = (layer_idx + 5) // 2
-            shape = [1, 1, 2 ** res, 2 ** res]
-            self.noises.register_buffer(f'noise_{layer_idx}', torch.randn(*shape))
+            shape = [1, 1, 2**res, 2**res]
+            self.noises.register_buffer(f"noise_{layer_idx}", torch.randn(*shape))
 
         for i in range(3, self.log_size + 1):
-            out_channel = self.channels[2 ** i]
+            out_channel = self.channels[2**i]
 
             self.convs.append(
                 StyledConv(
@@ -583,11 +584,11 @@ class Generator(nn.Module):
     def make_noise(self):
         device = self.input.input.device
 
-        noises = [torch.randn(1, 1, 2 ** 2, 2 ** 2, device=device)]
+        noises = [torch.randn(1, 1, 2**2, 2**2, device=device)]
 
         for i in range(3, self.log_size + 1):
             for _ in range(2):
-                noises.append(torch.randn(1, 1, 2 ** i, 2 ** i, device=device))
+                noises.append(torch.randn(1, 1, 2**i, 2**i, device=device))
 
         return noises
 
@@ -621,7 +622,7 @@ class Generator(nn.Module):
                 noise = [None] * self.num_layers
             else:
                 noise = [
-                    getattr(self.noises, f'noise_{i}') for i in range(self.num_layers)
+                    getattr(self.noises, f"noise_{i}") for i in range(self.num_layers)
                 ]
 
         if truncation < 1:
@@ -726,16 +727,30 @@ class ConvLayer(nn.Sequential):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, blur_kernel=[1, 3, 3, 1], downsample=True, skip_gain=1.0):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        blur_kernel=[1, 3, 3, 1],
+        downsample=True,
+        skip_gain=1.0,
+    ):
         super().__init__()
 
         self.skip_gain = skip_gain
         self.conv1 = ConvLayer(in_channel, in_channel, 3)
-        self.conv2 = ConvLayer(in_channel, out_channel, 3, downsample=downsample, blur_kernel=blur_kernel)
+        self.conv2 = ConvLayer(
+            in_channel, out_channel, 3, downsample=downsample, blur_kernel=blur_kernel
+        )
 
         if in_channel != out_channel or downsample:
             self.skip = ConvLayer(
-                in_channel, out_channel, 1, downsample=downsample, activate=False, bias=False
+                in_channel,
+                out_channel,
+                1,
+                downsample=downsample,
+                activate=False,
+                bias=False,
             )
         else:
             self.skip = nn.Identity()
@@ -745,13 +760,15 @@ class ResBlock(nn.Module):
         out = self.conv2(out)
 
         skip = self.skip(input)
-        out = (out * self.skip_gain + skip) / math.sqrt(self.skip_gain ** 2 + 1.0)
+        out = (out * self.skip_gain + skip) / math.sqrt(self.skip_gain**2 + 1.0)
 
         return out
 
 
 class StyleGAN2Discriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, no_antialias=False, size=None, opt=None):
+    def __init__(
+        self, input_nc, ndf=64, n_layers=3, no_antialias=False, size=None, opt=None
+    ):
         super().__init__()
         self.opt = opt
         self.stddev_group = 16
@@ -803,7 +820,7 @@ class StyleGAN2Discriminator(nn.Module):
             self.final_linear = ConvLayer(channels[4], 1, 3, bias=False, activate=False)
         else:
             self.final_linear = nn.Sequential(
-                EqualLinear(channels[4] * 4 * 4, channels[4], activation='fused_lrelu'),
+                EqualLinear(channels[4] * 4 * 4, channels[4], activation="fused_lrelu"),
                 EqualLinear(channels[4], 1),
             )
 
@@ -812,7 +829,9 @@ class StyleGAN2Discriminator(nn.Module):
             h, w = input.size(2), input.size(3)
             y = torch.randint(h - self.opt.D_patch_size, ())
             x = torch.randint(w - self.opt.D_patch_size, ())
-            input = input[:, :, y:y + self.opt.D_patch_size, x:x + self.opt.D_patch_size]
+            input = input[
+                :, :, y : y + self.opt.D_patch_size, x : x + self.opt.D_patch_size
+            ]
         out = input
         for i, conv in enumerate(self.convs):
             out = conv(out)
@@ -823,9 +842,7 @@ class StyleGAN2Discriminator(nn.Module):
 
         if False and "tile" in self.opt.netD:
             group = min(batch, self.stddev_group)
-            stddev = out.view(
-                group, -1, 1, channel // 1, height, width
-            )
+            stddev = out.view(group, -1, 1, channel // 1, height, width)
             stddev = torch.sqrt(stddev.var(0, unbiased=False) + 1e-8)
             stddev = stddev.mean([2, 3, 4], keepdim=True).squeeze(2)
             stddev = stddev.repeat(group, 1, height, width)
@@ -848,12 +865,24 @@ class TileStyleGAN2Discriminator(StyleGAN2Discriminator):
         Y = H // size
         X = W // size
         input = input.view(B, C, Y, size, X, size)
-        input = input.permute(0, 2, 4, 1, 3, 5).contiguous().view(B * Y * X, C, size, size)
+        input = (
+            input.permute(0, 2, 4, 1, 3, 5).contiguous().view(B * Y * X, C, size, size)
+        )
         return super().forward(input)
 
 
 class StyleGAN2Encoder(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, use_dropout=False, n_blocks=6, padding_type='reflect', no_antialias=False, opt=None):
+    def __init__(
+        self,
+        input_nc,
+        output_nc,
+        ngf=64,
+        use_dropout=False,
+        n_blocks=6,
+        padding_type="reflect",
+        no_antialias=False,
+        opt=None,
+    ):
         super().__init__()
         assert opt is not None
         self.opt = opt
@@ -873,14 +902,15 @@ class StyleGAN2Encoder(nn.Module):
         blur_kernel = [1, 3, 3, 1]
 
         cur_res = 2 ** int((np.rint(np.log2(min(opt.load_size, opt.crop_size)))))
-        convs = [nn.Identity(),
-                 ConvLayer(3, channels[cur_res], 1)]
+        convs = [nn.Identity(), ConvLayer(3, channels[cur_res], 1)]
 
         num_downsampling = self.opt.stylegan2_G_num_downsampling
         for i in range(num_downsampling):
             in_channel = channels[cur_res]
             out_channel = channels[cur_res // 2]
-            convs.append(ResBlock(in_channel, out_channel, blur_kernel, downsample=True))
+            convs.append(
+                ResBlock(in_channel, out_channel, blur_kernel, downsample=True)
+            )
             cur_res = cur_res // 2
 
         for i in range(n_blocks // 2):
@@ -907,7 +937,17 @@ class StyleGAN2Encoder(nn.Module):
 
 
 class StyleGAN2Decoder(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, use_dropout=False, n_blocks=6, padding_type='reflect', no_antialias=False, opt=None):
+    def __init__(
+        self,
+        input_nc,
+        output_nc,
+        ngf=64,
+        use_dropout=False,
+        n_blocks=6,
+        padding_type="reflect",
+        no_antialias=False,
+        opt=None,
+    ):
         super().__init__()
         assert opt is not None
         self.opt = opt
@@ -928,7 +968,9 @@ class StyleGAN2Decoder(nn.Module):
         }
 
         num_downsampling = self.opt.stylegan2_G_num_downsampling
-        cur_res = 2 ** int((np.rint(np.log2(min(opt.load_size, opt.crop_size))))) // (2 ** num_downsampling)
+        cur_res = 2 ** int((np.rint(np.log2(min(opt.load_size, opt.crop_size))))) // (
+            2**num_downsampling
+        )
         convs = []
 
         for i in range(n_blocks // 2):
@@ -940,7 +982,14 @@ class StyleGAN2Decoder(nn.Module):
             out_channel = channels[cur_res * 2]
             inject_noise = "small" not in self.opt.netG
             convs.append(
-                StyledConv(in_channel, out_channel, 3, upsample=True, blur_kernel=blur_kernel, inject_noise=inject_noise)
+                StyledConv(
+                    in_channel,
+                    out_channel,
+                    3,
+                    upsample=True,
+                    blur_kernel=blur_kernel,
+                    inject_noise=inject_noise,
+                )
             )
             cur_res = cur_res * 2
 
@@ -953,16 +1002,45 @@ class StyleGAN2Decoder(nn.Module):
 
 
 class StyleGAN2Generator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, use_dropout=False, n_blocks=6, out_ch=None, padding_type='reflect', no_antialias=False, opt=None):
+    def __init__(
+        self,
+        input_nc,
+        output_nc,
+        ngf=64,
+        use_dropout=False,
+        n_blocks=6,
+        out_ch=None,
+        padding_type="reflect",
+        no_antialias=False,
+        opt=None,
+    ):
         super().__init__()
         self.opt = opt
         self.out_ch = out_ch
         self.out_modality = self.out_ch.copy()
-        if 'mask' in self.out_modality:
-            self.out_modality.remove('mask')
+        if "mask" in self.out_modality:
+            self.out_modality.remove("mask")
         self.gumbel = GumbelSigmoid(hard=True, tau=1, pixelwise=True)
-        self.encoder = StyleGAN2Encoder(input_nc, output_nc, ngf, use_dropout, n_blocks, padding_type, no_antialias, opt)
-        self.decoder = StyleGAN2Decoder(input_nc, output_nc, ngf, use_dropout, n_blocks, padding_type, no_antialias, opt)
+        self.encoder = StyleGAN2Encoder(
+            input_nc,
+            output_nc,
+            ngf,
+            use_dropout,
+            n_blocks,
+            padding_type,
+            no_antialias,
+            opt,
+        )
+        self.decoder = StyleGAN2Decoder(
+            input_nc,
+            output_nc,
+            ngf,
+            use_dropout,
+            n_blocks,
+            padding_type,
+            no_antialias,
+            opt,
+        )
 
     def forward(self, input, layers=[], encode_only=False):
         feat, feats = self.encoder(input, layers, True)
@@ -975,21 +1053,21 @@ class StyleGAN2Generator(nn.Module):
             for k in self.out_ch:
                 output_dict[k] = output[:, i : i + m2ch[k]]
                 i = i + m2ch[k]
-            if 'mask' in output_dict:
-                output_dict['mask_logit'] = output_dict['mask']
-                mask = output_dict['mask'] = self.gumbel(output_dict['mask'])
-                if 'inv' in output_dict:
-                    inv = torch.tanh(output_dict['inv'])
-                    output_dict['inv_orig'] = inv
-                    output_dict['inv'] = mask * inv + (1 - mask) * -1
-                if 'reflectance' in output_dict:
-                    r = torch.tanh(output_dict['reflectance'])
-                    output_dict['reflectance'] = mask * r + (1 - mask) * -1
+            if "mask" in output_dict:
+                output_dict["mask_logit"] = output_dict["mask"]
+                mask = output_dict["mask"] = self.gumbel(output_dict["mask"])
+                if "inv" in output_dict:
+                    inv = torch.tanh(output_dict["inv"])
+                    output_dict["inv_orig"] = inv
+                    output_dict["inv"] = mask * inv + (1 - mask) * -1
+                if "reflectance" in output_dict:
+                    r = torch.tanh(output_dict["reflectance"])
+                    output_dict["reflectance"] = mask * r + (1 - mask) * -1
             out_list = []
             for m in self.out_modality:
                 out_list.append(output_dict[m])
             out = torch.cat(out_list, dim=1)
-            
+
             if len(layers) > 0:
                 return output_dict, out, feats
             else:

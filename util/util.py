@@ -1,16 +1,19 @@
 """This module contains simple helper functions """
+
 from __future__ import print_function
-from math import exp
-from torch.autograd import Variable
-import torch.nn.functional as F
-import torch
-import numpy as np
-from PIL import Image
+
 import os
+from math import exp
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from PIL import Image
+from torch.autograd import Variable
 
 
 def tensor2im(input_image, imtype=np.uint8):
-    """"Converts a Tensor array into a numpy image array.
+    """ "Converts a Tensor array into a numpy image array.
 
     Parameters:
         input_image (tensor) --  the input image tensor array
@@ -21,19 +24,25 @@ def tensor2im(input_image, imtype=np.uint8):
             image_tensor = input_image.data
         else:
             return input_image
-        image_numpy = image_tensor[0].cpu().float().numpy()  # convert it into a numpy array
+        image_numpy = (
+            image_tensor[0].cpu().float().numpy()
+        )  # convert it into a numpy array
         if image_numpy.shape[0] == 1:  # grayscale to RGB
             image_numpy = np.tile(image_numpy, (3, 1, 1))
-        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0  # post-processing: tranpose and scaling
+        image_numpy = (
+            (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
+        )  # post-processing: tranpose and scaling
     else:  # if it is a numpy array, do nothing
         image_numpy = input_image
     return image_numpy.astype(imtype)
 
-def denormalize(opt, x, minimum , maximum):
-    tmp = x*0.5 + 0.5
+
+def denormalize(opt, x, minimum, maximum):
+    tmp = x * 0.5 + 0.5
     return tmp * (maximum - minimum) + minimum
 
-def diagnose_network(net, name='network'):
+
+def diagnose_network(net, name="network"):
     """Calculate and print the mean of average absolute(gradients)
 
     Parameters:
@@ -79,11 +88,13 @@ def print_numpy(x, val=True, shp=False):
     """
     x = x.astype(np.float64)
     if shp:
-        print('shape,', x.shape)
+        print("shape,", x.shape)
     if val:
         x = x.flatten()
-        print('mean = %3.3f, min = %3.3f, max = %3.3f, median = %3.3f, std=%3.3f' % (
-            np.mean(x), np.min(x), np.max(x), np.median(x), np.std(x)))
+        print(
+            "mean = %3.3f, min = %3.3f, max = %3.3f, median = %3.3f, std=%3.3f"
+            % (np.mean(x), np.min(x), np.max(x), np.median(x), np.std(x))
+        )
 
 
 def mkdirs(paths):
@@ -111,42 +122,59 @@ def mkdir(path):
 
 def gaussian(window_size, sigma):
     gauss = torch.Tensor(
-        [exp(-(x - window_size//2)**2/float(2*sigma**2)) for x in range(window_size)])
-    return gauss/gauss.sum()
+        [
+            exp(-((x - window_size // 2) ** 2) / float(2 * sigma**2))
+            for x in range(window_size)
+        ]
+    )
+    return gauss / gauss.sum()
 
 
 def create_window(window_size, channel):
     _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
-    _2D_window = _1D_window.mm(
-        _1D_window.t()).float().unsqueeze(0).unsqueeze(0)
-    window = _2D_window.expand(
-        channel, 1, window_size, window_size).contiguous()
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = _2D_window.expand(channel, 1, window_size, window_size).contiguous()
     return window
 
 
 def _ssim(img1, img2, window, mask, window_size, channel, size_average=True):
-    conved_mask = F.conv2d(mask, window, padding=window_size //2, groups=channel) + 1e-10
-    mu1 = F.conv2d(img1, window, padding=window_size //2, groups=channel) / conved_mask
-    mu2 = F.conv2d(img2, window, padding=window_size//2, groups=channel) / conved_mask
+    conved_mask = (
+        F.conv2d(mask, window, padding=window_size // 2, groups=channel) + 1e-10
+    )
+    mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel) / conved_mask
+    mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel) / conved_mask
 
     mu1_sq = mu1.pow(2)
     mu2_sq = mu2.pow(2)
-    mu1_mu2 = mu1*mu2
+    mu1_mu2 = mu1 * mu2
 
-    sigma1_sq = F.conv2d(img1*img1, window, padding=window_size//2, groups=channel) / conved_mask - mu1_sq
-    sigma2_sq = F.conv2d(img2*img2, window, padding=window_size //2, groups=channel) / conved_mask - mu2_sq
-    sigma12 = F.conv2d(img1*img2, window, padding=window_size //2, groups=channel) / conved_mask - mu1_mu2
+    sigma1_sq = (
+        F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel)
+        / conved_mask
+        - mu1_sq
+    )
+    sigma2_sq = (
+        F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel)
+        / conved_mask
+        - mu2_sq
+    )
+    sigma12 = (
+        F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel)
+        / conved_mask
+        - mu1_mu2
+    )
 
     C1 = 0.01**2
     C2 = 0.03**2
 
-    ssim_map = ((2*mu1_mu2 + C1)*(2*sigma12 + C2)) / \
-        ((mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2))
+    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / (
+        (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
+    )
 
     if size_average:
         return (ssim_map.mean() + 1) / 2.0
     else:
-        return (ssim_map.mean(1).mean(1).mean(1) + 1)/2.0
+        return (ssim_map.mean(1).mean(1).mean(1) + 1) / 2.0
 
 
 class SSIM(torch.nn.Module):
@@ -171,7 +199,9 @@ class SSIM(torch.nn.Module):
             self.window = window
             self.channel = channel
 
-        return _ssim(img1, img2, window, mask, self.window_size, channel, self.size_average)
+        return _ssim(
+            img1, img2, window, mask, self.window_size, channel, self.size_average
+        )
 
 
 def ssim(img1, img2, window_size=11, size_average=True):
@@ -183,5 +213,3 @@ def ssim(img1, img2, window_size=11, size_average=True):
     window = window.type_as(img1)
 
     return _ssim(img1, img2, window, window_size, channel, size_average)
-
-

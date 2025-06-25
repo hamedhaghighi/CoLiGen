@@ -1,9 +1,13 @@
 import numpy as np
-from rangenet.tasks.semantic.modules.ioueval import iouEval
 import torchvision.transforms.functional as TF
+
+from rangenet.tasks.semantic.modules.ioueval import iouEval
 from util import _map
 
-def compute_seg_accuracy(seg_model, synth_data, gt_labels, ignore=[], label_map=None, fetched_mask=None):
+
+def compute_seg_accuracy(
+    seg_model, synth_data, gt_labels, ignore=[], label_map=None, fetched_mask=None
+):
     # H , W = 64, 2048
     # synth_data = TF.resize(synth_data, (H, W), TF.InterpolationMode.NEAREST)
     # gt_labels = TF.resize(gt_labels, (H, W), TF.InterpolationMode.NEAREST)

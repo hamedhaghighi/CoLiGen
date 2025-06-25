@@ -1,47 +1,114 @@
-'''
-(1) for projecting and 
-(2) for calculating the azimuth and elevation angles after the projection
-'''
+"""
+Dataset preprocessing script for LIDAR point cloud projection and angle calculation.
+
+This script provides two main functionalities:
+(1) Projecting 3D LIDAR point clouds to 2D range images
+(2) Calculating azimuth and elevation angles after projection
+
+The script supports multiple datasets including KITTI, CARLA, SemanticPOSS, WADS, and NuScenes.
+"""
 
 import argparse
 import multiprocessing
 import os
 import os.path as osp
-from collections import defaultdict
+import pathlib
+from collections import defaultdict, namedtuple
 from glob import glob
 
 import joblib
 import matplotlib.cm as cm
 import numpy as np
 import torch
+import yaml
+from nuscenes.nuscenes import NuScenes
 from PIL import Image
 from tqdm import tqdm
-import yaml
-from util.lidar import point_cloud_to_xyz_image, labelmap
-from nuscenes.nuscenes import NuScenes
-import pathlib
+
 from dataset.kitti_odometry import KITTIOdometry
 from dataset.nuscene import NuScene
-from collections import namedtuple
 from util import make_class_from_dict
+from util.lidar import labelmap, point_cloud_to_xyz_image
+
 
 def car2hom(pc):
-    return np.concatenate([pc[:, :3], np.ones((pc.shape[0], 1), dtype=pc.dtype)], axis=-1)
+    """
+    Convert Cartesian coordinates to homogeneous coordinates.
+
+    Args:
+        pc: Point cloud in Cartesian coordinates (N, 3)
+
+    Returns:
+        numpy.ndarray: Point cloud in homogeneous coordinates (N, 4)
+    """
+    return np.concatenate(
+        [pc[:, :3], np.ones((pc.shape[0], 1), dtype=pc.dtype)], axis=-1
+    )
+
 
 def image_to_pcl(rgb_image, point_cloud, velo_to_camera_rect, cam_intrinsic):
-        rgb = np.zeros((len(point_cloud),3), dtype=np.int32)
-        height, width, _ = rgb_image.shape
-        hom_pcl_points = car2hom(point_cloud[:, :3]).T
-        pcl_in_cam_rect = np.dot(velo_to_camera_rect, hom_pcl_points)
-        pcl_in_image = np.dot(cam_intrinsic, pcl_in_cam_rect)
-        pcl_in_image = np.array([pcl_in_image[0] / pcl_in_image[2], pcl_in_image[1] / pcl_in_image[2], pcl_in_image[2]])
-        canvas_mask = (pcl_in_image[0] > 0.0) & (pcl_in_image[0] < width) & (pcl_in_image[1] > 0.0)\
-            & (pcl_in_image[1] < height) & (pcl_in_image[2] > 0.0)
-        valid_pcl_in_image = pcl_in_image[:, canvas_mask].astype('int32')
-        rgb[canvas_mask] = rgb_image[valid_pcl_in_image[1], valid_pcl_in_image[0], :]
-        return rgb
+    """
+    Project RGB image colors onto point cloud using camera calibration.
+
+    This function projects 3D points to 2D image coordinates and extracts
+    the corresponding RGB values from the image.
+
+    Args:
+        rgb_image: RGB camera image
+        point_cloud: 3D point cloud coordinates
+        velo_to_camera_rect: Transformation matrix from velodyne to camera
+        cam_intrinsic: Camera intrinsic matrix
+
+    Returns:
+        numpy.ndarray: RGB values for each point in the point cloud
+    """
+    rgb = np.zeros((len(point_cloud), 3), dtype=np.int32)
+    height, width, _ = rgb_image.shape
+
+    # Convert to homogeneous coordinates and transform to camera frame
+    hom_pcl_points = car2hom(point_cloud[:, :3]).T
+    pcl_in_cam_rect = np.dot(velo_to_camera_rect, hom_pcl_points)
+
+    # Project to image coordinates
+    pcl_in_image = np.dot(cam_intrinsic, pcl_in_cam_rect)
+    pcl_in_image = np.array(
+        [
+            pcl_in_image[0] / pcl_in_image[2],
+            pcl_in_image[1] / pcl_in_image[2],
+            pcl_in_image[2],
+        ]
+    )
+
+    # Filter points that are within image bounds and in front of camera
+    canvas_mask = (
+        (pcl_in_image[0] > 0.0)
+        & (pcl_in_image[0] < width)
+        & (pcl_in_image[1] > 0.0)
+        & (pcl_in_image[1] < height)
+        & (pcl_in_image[2] > 0.0)
+    )
+
+    # Extract RGB values for valid points
+    valid_pcl_in_image = pcl_in_image[:, canvas_mask].astype("int32")
+    rgb[canvas_mask] = rgb_image[valid_pcl_in_image[1], valid_pcl_in_image[0], :]
+    return rgb
+
 
 def _map(label, mapdict):
+    """
+    Map label values using a lookup table.
+
+    This function creates a lookup table from the mapping dictionary and
+    applies it to the input labels. Used for converting between different
+    label encodings.
+
+    Args:
+        label: Input labels to be mapped
+        mapdict: Dictionary defining the mapping
+
+    Returns:
+        numpy.ndarray: Mapped labels
+    """
     # put label from original values to xentropy
     # or vice-versa, depending on dictionary values
     # make learning map a lookup table
@@ -73,144 +140,219 @@ _n_classes = max(labelmap.values()) + 1
 _colors = cm.turbo(np.asarray(range(_n_classes)) / (_n_classes - 1))[:, :3] * 255
 palette = list(np.uint8(_colors).flatten())
 
+
 def load_calib(root):
-        """Load and compute intrinsic and extrinsic calibration parameters."""
-        # We'll build the calibration parameters as a dictionary, then
-        # convert it to a namedtuple to prevent it from being modified later
-        data = {}
-        sequence_path = os.path.join(root, '00')
-        # Load the calibration file
-        calib_filepath = os.path.join(sequence_path, 'calib.txt')
-        filedata = {}
+    """
+    Load and compute intrinsic and extrinsic calibration parameters.
 
-        with open(calib_filepath, 'r') as f:
-            for line in f.readlines():
-                key, value = line.split(':', 1)
-                try:
-                    filedata[key] = np.array([float(x) for x in value.split()])
-                except ValueError:
-                    pass
+    This function loads the KITTI calibration file and computes all necessary
+    transformation matrices and camera parameters.
 
-        # Create 3x4 projection matrices
-        P_rect_00 = np.reshape(filedata['P0'], (3, 4))
-        P_rect_10 = np.reshape(filedata['P1'], (3, 4))
-        P_rect_20 = np.reshape(filedata['P2'], (3, 4))
-        P_rect_30 = np.reshape(filedata['P3'], (3, 4))
+    Args:
+        root: Root directory containing the dataset
 
-        data['P_rect_00'] = P_rect_00
-        data['P_rect_10'] = P_rect_10
-        data['P_rect_20'] = P_rect_20
-        data['P_rect_30'] = P_rect_30
+    Returns:
+        namedtuple: Calibration data containing all transformation matrices
+    """
+    # We'll build the calibration parameters as a dictionary, then
+    # convert it to a namedtuple to prevent it from being modified later
+    data = {}
+    sequence_path = os.path.join(root, "00")
+    # Load the calibration file
+    calib_filepath = os.path.join(sequence_path, "calib.txt")
+    filedata = {}
 
-        # Compute the rectified extrinsics from cam0 to camN
-        T1 = np.eye(4)
-        T1[0, 3] = P_rect_10[0, 3] / P_rect_10[0, 0]
-        T2 = np.eye(4)
-        T2[0, 3] = P_rect_20[0, 3] / P_rect_20[0, 0]
-        T3 = np.eye(4)
-        T3[0, 3] = P_rect_30[0, 3] / P_rect_30[0, 0]
+    with open(calib_filepath, "r") as f:
+        for line in f.readlines():
+            key, value = line.split(":", 1)
+            try:
+                filedata[key] = np.array([float(x) for x in value.split()])
+            except ValueError:
+                pass
 
-        # Compute the velodyne to rectified camera coordinate transforms
-        data['T_cam0_velo'] = np.reshape(filedata['Tr'], (3, 4))
-        data['T_cam0_velo'] = np.vstack([data['T_cam0_velo'], [0, 0, 0, 1]])
-        data['T_cam1_velo'] = T1.dot(data['T_cam0_velo'])
-        data['T_cam2_velo'] = T2.dot(data['T_cam0_velo'])
-        data['T_cam3_velo'] = T3.dot(data['T_cam0_velo'])
+    # Create 3x4 projection matrices
+    P_rect_00 = np.reshape(filedata["P0"], (3, 4))
+    P_rect_10 = np.reshape(filedata["P1"], (3, 4))
+    P_rect_20 = np.reshape(filedata["P2"], (3, 4))
+    P_rect_30 = np.reshape(filedata["P3"], (3, 4))
 
-        # Compute the camera intrinsics
-        data['K_cam0'] = P_rect_00[0:3, 0:3]
-        data['K_cam1'] = P_rect_10[0:3, 0:3]
-        data['K_cam2'] = P_rect_20[0:3, 0:3]
-        data['K_cam3'] = P_rect_30[0:3, 0:3]
+    data["P_rect_00"] = P_rect_00
+    data["P_rect_10"] = P_rect_10
+    data["P_rect_20"] = P_rect_20
+    data["P_rect_30"] = P_rect_30
 
-        # Compute the stereo baselines in meters by projecting the origin of
-        # each camera frame into the velodyne frame and computing the distances
-        # between them
-        p_cam = np.array([0, 0, 0, 1])
-        p_velo0 = np.linalg.inv(data['T_cam0_velo']).dot(p_cam)
-        p_velo1 = np.linalg.inv(data['T_cam1_velo']).dot(p_cam)
-        p_velo2 = np.linalg.inv(data['T_cam2_velo']).dot(p_cam)
-        p_velo3 = np.linalg.inv(data['T_cam3_velo']).dot(p_cam)
+    # Compute the rectified extrinsics from cam0 to camN
+    T1 = np.eye(4)
+    T1[0, 3] = P_rect_10[0, 3] / P_rect_10[0, 0]
+    T2 = np.eye(4)
+    T2[0, 3] = P_rect_20[0, 3] / P_rect_20[0, 0]
+    T3 = np.eye(4)
+    T3[0, 3] = P_rect_30[0, 3] / P_rect_30[0, 0]
 
-        data['b_gray'] = np.linalg.norm(p_velo1 - p_velo0)  # gray baseline
-        data['b_rgb'] = np.linalg.norm(p_velo3 - p_velo2)   # rgb baseline
+    # Compute the velodyne to rectified camera coordinate transforms
+    data["T_cam0_velo"] = np.reshape(filedata["Tr"], (3, 4))
+    data["T_cam0_velo"] = np.vstack([data["T_cam0_velo"], [0, 0, 0, 1]])
+    data["T_cam1_velo"] = T1.dot(data["T_cam0_velo"])
+    data["T_cam2_velo"] = T2.dot(data["T_cam0_velo"])
+    data["T_cam3_velo"] = T3.dot(data["T_cam0_velo"])
 
-        calib = namedtuple('CalibData', data.keys())(*data.values())
-        return calib
+    # Compute the camera intrinsics
+    data["K_cam0"] = P_rect_00[0:3, 0:3]
+    data["K_cam1"] = P_rect_10[0:3, 0:3]
+    data["K_cam2"] = P_rect_20[0:3, 0:3]
+    data["K_cam3"] = P_rect_30[0:3, 0:3]
+
+    # Compute the stereo baselines in meters by projecting the origin of
+    # each camera frame into the velodyne frame and computing the distances
+    # between them
+    p_cam = np.array([0, 0, 0, 1])
+    p_velo0 = np.linalg.inv(data["T_cam0_velo"]).dot(p_cam)
+    p_velo1 = np.linalg.inv(data["T_cam1_velo"]).dot(p_cam)
+    p_velo2 = np.linalg.inv(data["T_cam2_velo"]).dot(p_cam)
+    p_velo3 = np.linalg.inv(data["T_cam3_velo"]).dot(p_cam)
+
+    data["b_gray"] = np.linalg.norm(p_velo1 - p_velo0)  # gray baseline
+    data["b_rgb"] = np.linalg.norm(p_velo3 - p_velo2)  # rgb baseline
+
+    calib = namedtuple("CalibData", data.keys())(*data.values())
+    return calib
 
 
 def process_point_clouds(point_path, DATA, dest_dir, calib=None, name=None):
+    """
+    Process a single point cloud file by projecting it to 2D range image.
+
+    This function:
+    1. Loads point cloud and associated data (labels, RGB images)
+    2. Projects 3D points to 2D range image
+    3. Saves the projected data in the specified format
+
+    Args:
+        point_path: Path to the point cloud file
+        DATA: Dataset configuration object
+        dest_dir: Destination directory for processed data
+        calib: Calibration data (optional)
+        name: Dataset name
+    """
     H, W, is_sorted = DATA.height, DATA.width, DATA.is_sorted
     fov_up, fov_down = DATA.fov_up, DATA.fov_down
+
     def save_dir(x):
+        """Helper function to construct save directory path."""
         prev_split = x.split(os.path.sep)
         seq_mode_filename = os.path.sep.join(prev_split[-4:])
         return os.path.join(dest_dir, "projected", seq_mode_filename)
-    # setup point clouds
+
+    # Load point cloud data
     points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 4))
-    # for semantic kitti
+
+    # Load associated data paths
     label_path = point_path.replace("/velodyne", "/labels").replace(".bin", ".label")
     image_path = point_path.replace("/velodyne", "/image_2").replace(".bin", ".png")
     tag_path = point_path.replace("/velodyne", "/tag").replace(".bin", ".tag")
+
+    # Load and process semantic labels if available
     if osp.exists(label_path):
         label = np.fromfile(label_path, dtype=np.int32)
-        sem_label = label & 0xFFFF 
-        if name != 'semanticPOSS' and name != 'wads':
-            sem_label = _map(sem_label, labelmap)
-        points = np.concatenate([points, sem_label.astype('float32')[:, None]], axis=1)
+        sem_label = label & 0xFFFF  # Extract lower 16 bits
+        if name != "semanticPOSS" and name != "wads":
+            sem_label = _map(sem_label, labelmap)  # Map to learning labels
+        points = np.concatenate([points, sem_label.astype("float32")[:, None]], axis=1)
+
+    # Load and project RGB image colors if available
     if osp.exists(image_path):
-        velo_to_camera_rect =calib.T_cam2_velo
+        velo_to_camera_rect = calib.T_cam2_velo
         cam_intrinsic = calib.P_rect_20
         rgb_image = np.array(Image.open(image_path))
         rgb = image_to_pcl(rgb_image, points, velo_to_camera_rect, cam_intrinsic)
-        points = np.concatenate([points, rgb.astype('float32')], axis=1)
+        points = np.concatenate([points, rgb.astype("float32")], axis=1)
 
-    
+    # Load tag data if available
     tag = np.fromfile(tag_path, dtype=np.bool) if osp.exists(tag_path) else None
-    proj, _ = point_cloud_to_xyz_image(points, H, W, fov_up, fov_down, is_sorted=is_sorted, tag=tag, dataset_name=name)
 
+    # Project point cloud to 2D range image
+    proj, _ = point_cloud_to_xyz_image(
+        points, H, W, fov_up, fov_down, is_sorted=is_sorted, tag=tag, dataset_name=name
+    )
 
+    # Save projected point cloud data
     save_path = save_dir(point_path).replace(".bin", ".npy")
     os.makedirs(osp.dirname(save_path), exist_ok=True)
     np.save(save_path, proj[..., :4])
+
+    # Save projected labels if available
     if osp.exists(label_path):
         save_path = save_dir(label_path).replace(".label", ".png")
         os.makedirs(osp.dirname(save_path), exist_ok=True)
         labels = Image.fromarray(np.uint8(proj[..., 4]), mode="P")
         labels.putpalette(palette)
         labels.save(save_path)
+
+    # Save projected RGB image if available
     if osp.exists(image_path):
         save_path = save_dir(image_path)
         os.makedirs(osp.dirname(save_path), exist_ok=True)
-        rgb = Image.fromarray(proj[..., 5:8].astype('uint8'))
+        rgb = Image.fromarray(proj[..., 5:8].astype("uint8"))
         rgb.save(save_path)
 
 
 def process_nucs_point_clouds(point_path, label_path, H, W):
+    """
+    Process NuScenes point cloud data.
+
+    This function handles the specific format and coordinate system of NuScenes
+    point clouds and projects them to 2D range images.
+
+    Args:
+        point_path: Path to the point cloud file
+        label_path: Path to the label file
+        H: Height of the range image
+        W: Width of the range image
+    """
     filename = point_path.split(os.path.sep)[-1]
     root_dir = os.path.sep.join(point_path.split(os.path.sep)[:-1])
-    root_dir = root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg')
-    save_dir = osp.join(root_dir, 'PCL', filename)
-    label_save_dir = osp.join(root_dir, 'label', filename)
-    # setup point clouds
-    points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 5))[:, [1, 0, 2, 3]]; points[:, 0] = -points[:, 0]
-    # for semantic kitti
+    root_dir = root_dir.replace("nuscene_lidarseg", "projected_nuscene_lidarseg")
+    save_dir = osp.join(root_dir, "PCL", filename)
+    label_save_dir = osp.join(root_dir, "label", filename)
+
+    # Load point cloud data (NuScenes format: [x, y, z, intensity, ring_index])
+    points = np.fromfile(point_path, dtype=np.float32).reshape((-1, 5))[:, [1, 0, 2, 3]]
+    points[:, 0] = -points[:, 0]  # Flip x-axis for coordinate system conversion
+
+    # Load semantic labels if available
     if osp.exists(label_path):
         sem_label = np.fromfile(label_path, dtype=np.uint8)
-        points = np.concatenate([points, sem_label.astype('float32')[:, None]], axis=1)
-    proj, _ = point_cloud_to_xyz_image(points, H, W, fov_up=10.0, fov_down=-30.0, is_sorted=False)
+        points = np.concatenate([points, sem_label.astype("float32")[:, None]], axis=1)
 
+    # Project to 2D range image
+    proj, _ = point_cloud_to_xyz_image(
+        points, H, W, fov_up=10.0, fov_down=-30.0, is_sorted=False
+    )
 
+    # Save projected point cloud data
     save_path = save_dir.replace(".bin", ".npy")
     os.makedirs(osp.dirname(save_path), exist_ok=True)
     np.save(save_path, proj[..., :4])
+
+    # Save projected labels if available
     if osp.exists(label_path):
         save_path = label_save_dir.replace(".bin", ".png")
         os.makedirs(osp.dirname(save_path), exist_ok=True)
         labels = Image.fromarray(np.uint8(proj[..., 4]))
         labels.save(save_path)
 
+
 def mean(tensor, dim):
+    """
+    Compute mean along specified dimension, handling NaN values.
+
+    Args:
+        tensor: Input tensor
+        dim: Dimension along which to compute mean
+
+    Returns:
+        torch.Tensor: Mean tensor with NaN values handled
+    """
     tensor = tensor.clone()
     kwargs = {"dim": dim, "keepdim": True}
     valid = (~tensor.isnan()).float()
@@ -221,34 +363,52 @@ def mean(tensor, dim):
 
 @torch.no_grad()
 def compute_avg_angles(loader):
+    """
+    Compute average azimuth and elevation angles from a data loader.
 
+    This function processes batches of point cloud data to compute the
+    average pitch (elevation) and yaw (azimuth) angles for each pixel
+    in the range image.
+
+    Args:
+        loader: DataLoader providing point cloud batches
+
+    Returns:
+        tuple: (angles_tensor, mean_valid_tensor) - Average angles and validity mask
+    """
     max_depth = loader.dataset.max_depth
     summary = defaultdict(float)
 
+    # Process all batches
     for item in tqdm(loader):
         xyz_batch = item["points"]
 
+        # Extract coordinates
         x = xyz_batch[:, [0]]
         y = xyz_batch[:, [1]]
         z = xyz_batch[:, [2]]
-        depth = torch.sqrt(x ** 2 + y ** 2 + z ** 2) * max_depth
+
+        # Compute depth and validity mask
+        depth = torch.sqrt(x**2 + y**2 + z**2) * max_depth
         valid = (depth > 1e-8).float()
         summary["total_data"] += len(valid)
-  
         summary["total_valid"] += valid.sum(dim=0)  # (1,64,2048)
-        ############################
 
-        r = torch.sqrt(x ** 2 + y ** 2)
+        ############################
+        # Compute pitch (elevation) and yaw (azimuth) angles
+        r = torch.sqrt(x**2 + y**2)
         pitch = torch.atan2(z, r)
         yaw = torch.atan2(y, x)
         summary["pitch"] += torch.sum(pitch * valid, dim=0)
         summary["yaw"] += torch.sum(yaw * valid, dim=0)
 
-############################
-    summary["pitch"] = summary["pitch"] / summary["total_valid"] 
-    summary["yaw"] = summary["yaw"] / summary["total_valid"] 
+    ############################
+    # Compute average angles
+    summary["pitch"] = summary["pitch"] / summary["total_valid"]
+    summary["yaw"] = summary["yaw"] / summary["total_valid"]
     angles = torch.cat([summary["pitch"], summary["yaw"]], dim=0)
 
+    # Handle missing data by using mean values
     mean_pitch = mean(summary["pitch"], 2).expand_as(summary["pitch"])
     mean_yaw = mean(summary["yaw"], 1).expand_as(summary["yaw"])
     mean_angles = torch.cat([mean_pitch, mean_yaw], dim=0)
@@ -260,84 +420,102 @@ def compute_avg_angles(loader):
 
     angles = valid * angles + (1 - valid) * mean_angles
 
-########################################
+    ########################################
     assert angles.isnan().sum() == 0
 
     return angles, mean_valid
 
 
 if __name__ == "__main__":
-
+    # Set up command line argument parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--root-dir", type=str, required=True)
     parser.add_argument("--dest-dir", type=str, required=True)
     parser.add_argument("--dataset-name", type=str, required=True)
-    parser.add_argument("--project", action='store_true')
+    parser.add_argument("--project", action="store_true")
     args = parser.parse_args()
-    DATA =  make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{args.dataset_name}_cfg.yml', 'r')))
+
+    # Load dataset configuration
+    DATA = make_class_from_dict(
+        yaml.safe_load(open(f"configs/dataset_cfg/{args.dataset_name}_cfg.yml", "r"))
+    )
     H, W = DATA.height, DATA.width
+
     if args.project:
-        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS','wads']:
+        # Project point clouds to 2D range images
+        if args.dataset_name in ["kitti", "carla", "semanticPOSS", "wads"]:
             # calib = load_calib(osp.join(args.root_dir, "dataset/sequences"))
             calib = None
             # H, W = 64, 2048
             split_dirs = sorted(glob(osp.join(args.root_dir, "dataset/sequences", "*")))
             for split_dir in tqdm(split_dirs):
                 point_paths = sorted(glob(osp.join(split_dir, "velodyne", "*.bin")))
+                # Process point clouds in parallel
                 joblib.Parallel(
                     n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
                 )(
                     [
-                        joblib.delayed(process_point_clouds)(point_path, DATA, args.dest_dir, calib, args.dataset_name)
+                        joblib.delayed(process_point_clouds)(
+                            point_path, DATA, args.dest_dir, calib, args.dataset_name
+                        )
                         for point_path in point_paths
                     ]
                 )
-            
-         
 
-        elif args.dataset_name == 'nuscene':
-            nusc = NuScenes(version = 'v1.0-mini', dataroot = args.root_dir, verbose = True)
+        elif args.dataset_name == "nuscene":
+            # Handle NuScenes dataset
+            nusc = NuScenes(version="v1.0-mini", dataroot=args.root_dir, verbose=True)
             datalist = []
-            labels_list=[]
+            labels_list = []
             for i in range(len(nusc.sample)):
                 sample = nusc.sample[i]
-                sample_data_token = sample['data']['LIDAR_TOP']
+                sample_data_token = sample["data"]["LIDAR_TOP"]
                 sample_path = nusc.get_sample_data_path(sample_data_token)
-                label_path = (pathlib.Path(nusc.dataroot) / nusc.get("lidarseg", sample_data_token)["filename"])
+                label_path = (
+                    pathlib.Path(nusc.dataroot)
+                    / nusc.get("lidarseg", sample_data_token)["filename"]
+                )
                 datalist.append(sample_path)
                 labels_list.append(label_path)
+            # Process NuScenes data in parallel
             joblib.Parallel(
                 n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
             )(
                 [
-                    joblib.delayed(process_nucs_point_clouds)(point_path, label_path, H, W)
+                    joblib.delayed(process_nucs_point_clouds)(
+                        point_path, label_path, H, W
+                    )
                     for point_path, label_path in zip(datalist, labels_list)
                 ]
-            ) 
+            )
     else:
-        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS','wads']:
+        # Compute average angles
+        if args.dataset_name in ["kitti", "carla", "semanticPOSS", "wads"]:
             dataset = KITTIOdometry(
-            args.root_dir,
-            'train',
-            DATA,
-            shape=(H, W),
-            flip=False,
-            modality=['depth'],
-            fill_in_label=False,
-            name = args.dataset_name,
-            limited_view=False)
+                args.root_dir,
+                "train",
+                DATA,
+                shape=(H, W),
+                flip=False,
+                modality=["depth"],
+                fill_in_label=False,
+                name=args.dataset_name,
+                limited_view=False,
+            )
         else:
             dataset = NuScene(
-            args.root_dir,
-            'train',
-            None,
-            shape=(32, 1024),
-            flip=False,
-            modality=['depth'],
-            is_sorted=False,
-            is_raw=True,
-            fill_in_label=False)
+                args.root_dir,
+                "train",
+                None,
+                shape=(32, 1024),
+                flip=False,
+                modality=["depth"],
+                is_sorted=False,
+                is_raw=True,
+                fill_in_label=False,
+            )
 
+        # Create data loader and compute angles
         loader = torch.utils.data.DataLoader(
             dataset,
             batch_size=64,
@@ -349,4 +527,3 @@ if __name__ == "__main__":
         angles, valid = compute_avg_angles(loader)
         torch.save(angles, osp.join(args.root_dir, "angles.pt"))
     # torch.save(angles, osp.join(args.root_dir.replace('nuscene_lidarseg', 'projected_nuscene_lidarseg'), "angles.pt"))
-

@@ -26,50 +26,63 @@ Use ARROWS or WASD keys for control.
 STARTING in a moment...
 """
 
-
+# Standard library imports
 import argparse
-import cv2
-import logging
-import random
-import time
-import math
 import colorsys
-import os
-import sys
 import glob
-from queue import Queue
+import logging
+import math
+import os
+import random
+import sys
+import time
+from queue import Empty, Queue
+
+# Third-party imports
+import cv2
 from constants import *
-from queue import Empty
 
-sys.path.append(glob.glob('/opt/carla-simulator/PythonAPI/carla/dist/carla-*%d.%d-%s.egg' %
-                          (sys.version_info.major, sys.version_info.minor, 'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+# Add CARLA Python API to system path
+# This dynamically finds and adds the CARLA Python API egg file to the system path
+sys.path.append(
+    glob.glob(
+        "/opt/carla-simulator/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
+        % (
+            sys.version_info.major,
+            sys.version_info.minor,
+            "win-amd64" if os.name == "nt" else "linux-x86_64",
+        )
+    )[0]
+)
 
+# Import pygame for GUI and user interaction
 try:
     import pygame
 except ImportError:
-    raise RuntimeError(
-        'cannot import pygame, make sure pygame package is installed')
+    raise RuntimeError("cannot import pygame, make sure pygame package is installed")
 
+# Import numpy for numerical computations
 try:
     import numpy as np
-    from numpy.linalg import pinv, inv
+    from numpy.linalg import inv, pinv
 except ImportError:
-    raise RuntimeError(
-        'cannot import numpy, make sure numpy package is installed')
+    raise RuntimeError("cannot import numpy, make sure numpy package is installed")
 
-import carla
-from utils import Timer, rand_color, vector3d_to_array, degrees_to_radians
-from datadescriptor import KittiDescriptor
-from dataexport import *
-from carla_utils import KeyboardHelper, MeasurementsDisplayHelper
-from constants import *
-import lidar_utils  # from lidar_utils import project_point_cloud
 import time
 from math import cos, sin
 
+# CARLA-specific imports
+import carla
+import lidar_utils  # from lidar_utils import project_point_cloud
 from carla import ColorConverter as cc
+from carla_utils import KeyboardHelper, MeasurementsDisplayHelper
+from constants import *
+from datadescriptor import KittiDescriptor
+from dataexport import *
+from utils import Timer, degrees_to_radians, rand_color, vector3d_to_array
 
 """ OUTPUT FOLDER GENERATION """
+# Configuration for data generation phase and output directory
 PHASE = "training"
 OUTPUT_FOLDER = "/media/oem/Local Disk/Phd-datasets/Carla_dataset/sequences/00"
 # folders = ['calib', 'image_2', 'label_2', 'velodyne', 'planes']
@@ -85,20 +98,43 @@ OUTPUT_FOLDER = "/media/oem/Local Disk/Phd-datasets/Carla_dataset/sequences/00"
 #     maybe_create_dir(directory)
 
 """ DATA SAVE PATHS """
-LIDAR_PATH = os.path.join(OUTPUT_FOLDER, 'velodyne/{0:06}.bin')
-LABEL_PATH = os.path.join(OUTPUT_FOLDER, 'labels/{0:06}.label')
-IMAGE_PATH = os.path.join(OUTPUT_FOLDER, 'images/{0:06}.png')
-CALIBRATION_PATH = os.path.join(OUTPUT_FOLDER, 'calib/calib.txt')
+# Define file paths for different data types (LIDAR, labels, images, calibration)
+LIDAR_PATH = os.path.join(OUTPUT_FOLDER, "velodyne/{0:06}.bin")
+LABEL_PATH = os.path.join(OUTPUT_FOLDER, "labels/{0:06}.label")
+IMAGE_PATH = os.path.join(OUTPUT_FOLDER, "images/{0:06}.png")
+CALIBRATION_PATH = os.path.join(OUTPUT_FOLDER, "calib/calib.txt")
 
 
 class CarlaGame(object):
+    """
+    Main class for CARLA data generation game/simulation.
+
+    This class handles the entire CARLA simulation including:
+    - Sensor setup (RGB camera, semantic segmentation camera, LIDAR)
+    - Vehicle and pedestrian spawning
+    - Data collection and saving
+    - User interaction and control
+    - Environment management
+    """
+
     def __init__(self, carla_client, args):
+        """
+        Initialize the CARLA game with client connection and arguments.
+
+        Args:
+            carla_client: Connected CARLA client instance
+            args: Command line arguments containing simulation parameters
+        """
         self.client = carla_client
         self.client.set_timeout(10.0)
+
+        # Initialize traffic manager for autonomous vehicle behavior
         self.traffic_manager = self.client.get_trafficmanager(8000)
         self.traffic_manager.set_global_distance_to_leading_vehicle(0.5)
         self.traffic_manager.set_synchronous_mode(True)
         self.traffic_manager.set_hybrid_physics_mode(True)
+
+        # Game state variables
         self.just_destroyed = False
         self.camera = None
         self.camera_seg = None
@@ -116,47 +152,88 @@ class CarlaGame(object):
         self._agent_positions = None
         self.captured_frame_no = self.current_captured_frame_num()
         self._extrinsic = None
-        # To keep track of how far the car has driven since the last capture of data
+
+        # Tracking variables for data collection
         self._agent_location_on_last_capture = None
-        # How many frames we have captured since reset
         self._captured_frames_since_restart = 0
+
+        # Actor management
         self.player = None
         self.walker_actors = []
         self.walker_controller_list = []
         self.vehicles_actors = []
+
+        # Calculate LIDAR points per second based on configuration
         lidar_points_per_sec = LIDAR_NUM_CHANNELS * 2048 * LIDAR_FPS
+
+        # Define sensor configurations for RGB camera, semantic segmentation, and LIDAR
         self.sensors = [
-            ['sensor.camera.rgb', {'image_size_x': str(WINDOW_WIDTH), 'image_size_y': str(WINDOW_HEIGHT)}],
-            ['sensor.camera.semantic_segmentation', {'image_size_x': str(WINDOW_WIDTH), 'image_size_y': str(WINDOW_HEIGHT)}],
-            ['sensor.lidar.ray_cast', {'range': str(LIDAR_MAX_RANGE), 'points_per_second': str(lidar_points_per_sec), 'channels': str(LIDAR_NUM_CHANNELS),
-                                                                 'lower_fov': '-25.0', 'upper_fov': '3.0', 'dropoff_general_rate': '0.0', 'dropoff_intensity_limit': '0.5',
-                                                                  'rotation_frequency' : str(LIDAR_FPS)}]
-            ]
+            [
+                "sensor.camera.rgb",
+                {"image_size_x": str(WINDOW_WIDTH), "image_size_y": str(WINDOW_HEIGHT)},
+            ],
+            [
+                "sensor.camera.semantic_segmentation",
+                {"image_size_x": str(WINDOW_WIDTH), "image_size_y": str(WINDOW_HEIGHT)},
+            ],
+            [
+                "sensor.lidar.ray_cast",
+                {
+                    "range": str(LIDAR_MAX_RANGE),
+                    "points_per_second": str(lidar_points_per_sec),
+                    "channels": str(LIDAR_NUM_CHANNELS),
+                    "lower_fov": "-25.0",
+                    "upper_fov": "3.0",
+                    "dropoff_general_rate": "0.0",
+                    "dropoff_intensity_limit": "0.5",
+                    "rotation_frequency": str(LIDAR_FPS),
+                },
+            ],
+        ]
         """Make a CarlaSettings object with the settings we need."""
 
-
     def current_captured_frame_num(self):
+        """
+        Determine the current frame number for data collection.
+
+        This method checks if there's existing data and asks the user whether
+        to overwrite or append to the existing dataset.
+
+        Returns:
+            int: The starting frame number for data collection
+        """
         # Figures out which frame number we currently are on
         # This is run once, when we start the simulator in case we already have a dataset.
         # The user can then choose to overwrite or append to the dataset.
-        label_path = os.path.join(OUTPUT_FOLDER, 'velodyne/')
+        label_path = os.path.join(OUTPUT_FOLDER, "velodyne/")
         num_existing_data_files = len(
-            [name for name in os.listdir(label_path) if name.endswith('.bin')])
+            [name for name in os.listdir(label_path) if name.endswith(".bin")]
+        )
         print(num_existing_data_files)
         if num_existing_data_files == 0:
             return 0
         answer = input(
-            "There already exists a dataset in {}. Would you like to (O)verwrite or (A)ppend the dataset? (O/A)".format(OUTPUT_FOLDER))
+            "There already exists a dataset in {}. Would you like to (O)verwrite or (A)ppend the dataset? (O/A)".format(
+                OUTPUT_FOLDER
+            )
+        )
         if answer.upper() == "O":
-            logging.info(
-                "Resetting frame number to 0 and overwriting existing")
+            logging.info("Resetting frame number to 0 and overwriting existing")
             # Overwrite the data
             return 0
-        logging.info("Continuing recording data on frame number {}".format(
-            num_existing_data_files))
+        logging.info(
+            "Continuing recording data on frame number {}".format(
+                num_existing_data_files
+            )
+        )
         return num_existing_data_files
 
     def execute(self):
+        """
+        Main execution loop for the CARLA game.
+
+        Initializes pygame, runs the main game loop, and handles cleanup.
+        """
         """Launch the PyGame."""
         pygame.init()
         self._initialize_game()
@@ -173,22 +250,33 @@ class CarlaGame(object):
             self.world.apply_settings(self.original_settings)
             self.destroy()
 
-
     def _initialize_game(self):
-
+        """
+        Initialize the pygame display and start a new episode.
+        """
         self._display = pygame.display.set_mode(
-            (WINDOW_WIDTH, WINDOW_HEIGHT),
-            pygame.HWSURFACE | pygame.DOUBLEBUF)
-        logging.debug('pygame started')
+            (WINDOW_WIDTH, WINDOW_HEIGHT), pygame.HWSURFACE | pygame.DOUBLEBUF
+        )
+        logging.debug("pygame started")
         self._on_new_episode()
 
-
     def spawn(self, blueprint, transform=None, attach_to=None):
+        """
+        Spawn an actor in the CARLA world.
+
+        Args:
+            blueprint: CARLA blueprint for the actor to spawn
+            transform: Optional transform for the spawn location
+            attach_to: Optional parent actor to attach to
+
+        Returns:
+            carla.Actor: The spawned actor
+        """
         if transform is None:
             actor = None
             while True:
                 if not self.map.get_spawn_points():
-                    logging.error('no spawning points')
+                    logging.error("no spawning points")
                     exit(1)
                 spawn_points = self.map.get_spawn_points()
                 spawn_point = random.choice(spawn_points)
@@ -198,14 +286,25 @@ class CarlaGame(object):
         elif attach_to is None:
             actor = self.world.try_spawn_actor(blueprint=blueprint, transform=transform)
             return actor
-        actor = self.world.try_spawn_actor(blueprint=blueprint, transform=transform, attach_to=attach_to)
+        actor = self.world.try_spawn_actor(
+            blueprint=blueprint, transform=transform, attach_to=attach_to
+        )
         return actor
 
-
     def _on_new_episode(self):
+        """
+        Start a new episode by setting up the world, spawning actors, and configuring sensors.
 
+        This method:
+        1. Loads a new CARLA world
+        2. Spawns the player vehicle
+        3. Spawns other vehicles and pedestrians
+        4. Sets up sensors (camera, LIDAR)
+        5. Configures data collection queues
+        """
+        # Load a new world (Town02)
         map_n = 2
-        self.client.load_world('Town0'+ str(map_n))
+        self.client.load_world("Town0" + str(map_n))
         self.world = self.client.get_world()
         self.original_settings = self.world.get_settings()
         settings = self.world.get_settings()
@@ -215,26 +314,29 @@ class CarlaGame(object):
         self.map = self.world.get_map()
         self.world.apply_settings(settings)
 
-
+        # Clean up existing actors
         if self.player is not None:
             self.destroy()
-        self.player = None    
+        self.player = None
         self.all_id = []
         self.all_actors = []
         self.vehicles_actors = []
 
+        # Import CARLA commands for batch operations
         SpawnActor = carla.command.SpawnActor
         SetAutopilot = carla.command.SetAutopilot
         SetVehicleLightState = carla.command.SetVehicleLightState
         FutureActor = carla.command.FutureActor
 
-
-        blueprint = self.world.get_blueprint_library().filter('vehicle.tesla.model3')[0]
-        blueprint.set_attribute('role_name', 'hero')
-        if blueprint.has_attribute('is_invincible'):
-            blueprint.set_attribute('is_invincible', 'true')
+        # Spawn the player vehicle (Tesla Model 3)
+        blueprint = self.world.get_blueprint_library().filter("vehicle.tesla.model3")[0]
+        blueprint.set_attribute("role_name", "hero")
+        if blueprint.has_attribute("is_invincible"):
+            blueprint.set_attribute("is_invincible", "true")
         # Spawn the player.
         self.player = self.spawn(blueprint)
+
+        # Spawn other vehicles
         spawn_points = self.world.get_map().get_spawn_points()
         random.shuffle(spawn_points)
         n_vehicles = NUM_VEHICLES
@@ -243,42 +345,45 @@ class CarlaGame(object):
         batch = []
 
         for i in range(n_vehicles):
-            bp = random.choice(self.world.get_blueprint_library().filter('vehicle.*'))
-            if bp.has_attribute('is_invincible'):
-                bp.set_attribute('is_invincible', 'false')
-            batch.append(SpawnActor(bp, spawn_points[i])
-                         .then(SetAutopilot(FutureActor, True, self.traffic_manager.get_port())))
-        
+            bp = random.choice(self.world.get_blueprint_library().filter("vehicle.*"))
+            if bp.has_attribute("is_invincible"):
+                bp.set_attribute("is_invincible", "false")
+            batch.append(
+                SpawnActor(bp, spawn_points[i]).then(
+                    SetAutopilot(FutureActor, True, self.traffic_manager.get_port())
+                )
+            )
+
         for response in self.client.apply_batch_sync(batch, True):
             if response.error:
                 logging.error(response.error)
             else:
                 self.vehicles_actors.append(response.actor_id)
 
-        # Walkers ....
+        # Spawn pedestrians
         spawn_points = []
         for i in range(NUM_PEDESTRIANS):
             spawn_point = carla.Transform()
             loc = self.world.get_random_location_from_navigation()
-            if (loc != None):
+            if loc != None:
                 spawn_point.location = loc
                 spawn_points.append(spawn_point)
-        walker_speed = []    
+        walker_speed = []
         percentagePedestriansRunning = 0.0
         percentagePedestriansCrossing = 0.3
         batch = []
         for spawn_point in spawn_points:
-            bp = random.choice(self.world.get_blueprint_library().filter('walker.*'))
-            if bp.has_attribute('is_invincible'):
-                bp.set_attribute('is_invincible', 'false')
+            bp = random.choice(self.world.get_blueprint_library().filter("walker.*"))
+            if bp.has_attribute("is_invincible"):
+                bp.set_attribute("is_invincible", "false")
             # set the max speed
-            if bp.has_attribute('speed'):
-                if (random.random() > percentagePedestriansRunning):
+            if bp.has_attribute("speed"):
+                if random.random() > percentagePedestriansRunning:
                     # walking
-                    walker_speed.append(bp.get_attribute('speed').recommended_values[1])
+                    walker_speed.append(bp.get_attribute("speed").recommended_values[1])
                 else:
                     # running
-                    walker_speed.append(bp.get_attribute('speed').recommended_values[2])
+                    walker_speed.append(bp.get_attribute("speed").recommended_values[2])
             else:
                 print("Walker has no speed")
                 walker_speed.append(0.0)
@@ -286,7 +391,7 @@ class CarlaGame(object):
 
             # self.walker_actors.append(actor)
 
-        walkers_list=[]
+        walkers_list = []
         results = self.client.apply_batch_sync(batch, True)
         walker_speed2 = []
         for i in range(len(results)):
@@ -297,12 +402,18 @@ class CarlaGame(object):
                 walker_speed2.append(walker_speed[i])
         walker_speed = walker_speed2
 
-
+        # Spawn walker controllers
         batch = []
         for i in range(len(walkers_list)):
-            walker_controller_bp = self.world.get_blueprint_library().find('controller.ai.walker')
-            batch.append(SpawnActor(walker_controller_bp, carla.Transform(), walkers_list[i]["id"]))
-            
+            walker_controller_bp = self.world.get_blueprint_library().find(
+                "controller.ai.walker"
+            )
+            batch.append(
+                SpawnActor(
+                    walker_controller_bp, carla.Transform(), walkers_list[i]["id"]
+                )
+            )
+
         results = self.client.apply_batch_sync(batch, True)
         for i in range(len(results)):
             if results[i].error:
@@ -315,19 +426,22 @@ class CarlaGame(object):
             self.all_id.append(walkers_list[i]["id"])
         self.all_actors = self.world.get_actors(self.all_id)
 
+        # Configure pedestrian behavior
         self.world.set_pedestrians_cross_factor(percentagePedestriansCrossing)
         for i in range(0, len(self.all_id), 2):
             # start walker
             self.all_actors[i].start()
             # set walk to random point
             self.all_actors[i].go_to_location(
-                self.world.get_random_location_from_navigation())
+                self.world.get_random_location_from_navigation()
+            )
             # max speed
-            self.all_actors[i].set_max_speed(float(walker_speed[int(i/2)]))
+            self.all_actors[i].set_max_speed(float(walker_speed[int(i / 2)]))
 
         # Set up the sensors.
         self.traffic_manager.global_percentage_speed_difference(30.0)
 
+        # Create sensor blueprints
         sensors_bp_dict = dict()
         bp_library = self.world.get_blueprint_library()
         for item in self.sensors:
@@ -335,17 +449,34 @@ class CarlaGame(object):
             sensors_bp_dict[item[0]] = bp
             for attr_name, attr_value in item[1].items():
                 bp.set_attribute(attr_name, attr_value)
-            
-        self.camera = self.spawn(sensors_bp_dict['sensor.camera.rgb'], carla.Transform(
-            carla.Location(x=1.6, z=1.6)), attach_to=self.player)
-        self.camera_seg = self.spawn(sensors_bp_dict['sensor.camera.semantic_segmentation'], carla.Transform(
-            carla.Location(x=1.6, z=1.6)), attach_to=self.player)
-        self.lidar = self.spawn(sensors_bp_dict['sensor.lidar.ray_cast'], carla.Transform(
-            carla.Location(x=1.0, z=1.8)), attach_to=self.player)
 
-        camera_fov = sensors_bp_dict['sensor.camera.rgb'].get_attribute('fov').as_float()
-        camera_width = sensors_bp_dict['sensor.camera.rgb'].get_attribute('image_size_x').as_int()
-        camera_height = sensors_bp_dict['sensor.camera.rgb'].get_attribute('image_size_y').as_int()
+        # Spawn sensors and attach to player vehicle
+        self.camera = self.spawn(
+            sensors_bp_dict["sensor.camera.rgb"],
+            carla.Transform(carla.Location(x=1.6, z=1.6)),
+            attach_to=self.player,
+        )
+        self.camera_seg = self.spawn(
+            sensors_bp_dict["sensor.camera.semantic_segmentation"],
+            carla.Transform(carla.Location(x=1.6, z=1.6)),
+            attach_to=self.player,
+        )
+        self.lidar = self.spawn(
+            sensors_bp_dict["sensor.lidar.ray_cast"],
+            carla.Transform(carla.Location(x=1.0, z=1.8)),
+            attach_to=self.player,
+        )
+
+        # Calculate camera intrinsic matrix
+        camera_fov = (
+            sensors_bp_dict["sensor.camera.rgb"].get_attribute("fov").as_float()
+        )
+        camera_width = (
+            sensors_bp_dict["sensor.camera.rgb"].get_attribute("image_size_x").as_int()
+        )
+        camera_height = (
+            sensors_bp_dict["sensor.camera.rgb"].get_attribute("image_size_y").as_int()
+        )
 
         focal = camera_width / (2.0 * np.tan(camera_fov * np.pi / 360.0))
         K = np.identity(3)
@@ -353,17 +484,17 @@ class CarlaGame(object):
         K[0, 2] = camera_width / 2.0
         K[1, 2] = camera_height / 2.0
         self.intrinsic = K
-        
-    
 
-        logging.info('Starting new episode...')
+        logging.info("Starting new episode...")
         self._timer = Timer()
         self._is_on_reverse = False
 
+        # Set up data queues for sensor data collection
         self.image_queue = Queue()
         self.lidar_queue = Queue()
         self.camera_seg_queue = Queue()
 
+        # Register sensor data callbacks
         self.camera.listen(lambda data: self.image_queue.put(data))
         self.lidar.listen(lambda data: self.lidar_queue.put(data))
         self.camera_seg.listen(lambda data: self.camera_seg_queue.put(data))
@@ -374,12 +505,36 @@ class CarlaGame(object):
         self.just_destroyed = False
 
     def get_rgb_array_from_carla_image(self, carla_image):
+        """
+        Convert CARLA image data to numpy RGB array.
+
+        Args:
+            carla_image: CARLA image object
+
+        Returns:
+            numpy.ndarray: RGB image array
+        """
         im_array = np.copy(np.frombuffer(carla_image.raw_data, dtype=np.dtype("uint8")))
         im_array = np.reshape(im_array, (carla_image.height, carla_image.width, 4))
-        im_array = im_array[:, :, :3][:, :, ::-1]
+        im_array = im_array[:, :, :3][:, :, ::-1]  # Convert BGRA to RGB
         return im_array
 
-    def lidar_to_camera_trans(self, pc, l_2_w_trans, w_2_c_trans,  K, image_w, image_h):
+    def lidar_to_camera_trans(self, pc, l_2_w_trans, w_2_c_trans, K, image_w, image_h):
+        """
+        Transform LIDAR point cloud from LIDAR coordinates to camera image coordinates.
+
+        Args:
+            pc: Point cloud in LIDAR coordinates
+            l_2_w_trans: LIDAR to world transformation matrix
+            w_2_c_trans: World to camera transformation matrix
+            K: Camera intrinsic matrix
+            image_w: Image width
+            image_h: Image height
+
+        Returns:
+            tuple: (u_coordinates, v_coordinates, valid_points_mask)
+        """
+        # Add homogeneous coordinate
         pc = np.r_[pc, [np.ones(pc.shape[1])]]
 
         # Transform the points from lidar space to world space.
@@ -389,28 +544,33 @@ class CarlaGame(object):
 
         # Transform the points from world space to camera space.
         sensor_points = np.dot(w_2_c_trans, world_points)
-        point_in_camera_coords = np.array([
-            sensor_points[1],
-            sensor_points[2] * -1,
-            sensor_points[0]])
+        point_in_camera_coords = np.array(
+            [sensor_points[1], sensor_points[2] * -1, sensor_points[0]]
+        )
 
         # Finally we can use our K matrix to do the actual 3D -> 2D.
         points_2d = np.dot(K, point_in_camera_coords)
         # Remember to normalize the x, y values by the 3rd value.
-        points_2d = np.array([
-            points_2d[0, :] / points_2d[2, :],
-            points_2d[1, :] / points_2d[2, :],
-            points_2d[2, :]])
+        points_2d = np.array(
+            [
+                points_2d[0, :] / points_2d[2, :],
+                points_2d[1, :] / points_2d[2, :],
+                points_2d[2, :],
+            ]
+        )
 
         # At this point, points_2d[0, :] contains all the x and points_2d[1, :]
         # contains all the y values of our points. In order to properly
         # visualize everything on a screen, the points that are out of the screen
         # must be discarted, the same with points behind the camera projection plane.
         points_2d = points_2d.T
-        points_in_canvas_mask = \
-            (points_2d[:, 0] > 0.0) & (points_2d[:, 0] < image_w) & \
-            (points_2d[:, 1] > 0.0) & (points_2d[:, 1] < image_h) & \
-            (points_2d[:, 2] > 0.0)
+        points_in_canvas_mask = (
+            (points_2d[:, 0] > 0.0)
+            & (points_2d[:, 0] < image_w)
+            & (points_2d[:, 1] > 0.0)
+            & (points_2d[:, 1] < image_h)
+            & (points_2d[:, 2] > 0.0)
+        )
         points_2d = points_2d[points_in_canvas_mask]
 
         # Extract the screen coords (uv) as integers.
@@ -418,11 +578,17 @@ class CarlaGame(object):
         v_coord = points_2d[:, 1].astype(np.int)
         return u_coord, v_coord, points_in_canvas_mask
 
-
     def _on_loop(self):
-       
+        """
+        Main game loop that processes sensor data, handles user input, and manages data collection.
+
+        Returns:
+            bool: True if episode should be reset, False otherwise
+        """
         # Reset the environment if the agent is stuck or can't find any agents or if we have captured enough frames in this one
-        is_enough_datapoints = (self._captured_frames_since_restart + 1) % NUM_RECORDINGS_BEFORE_RESET == 0
+        is_enough_datapoints = (
+            self._captured_frames_since_restart + 1
+        ) % NUM_RECORDINGS_BEFORE_RESET == 0
 
         if (is_enough_datapoints) and GEN_DATA:
             logging.warning("Is_enough_datapoints: {}".format(is_enough_datapoints))
@@ -430,7 +596,7 @@ class CarlaGame(object):
             # If we dont sleep, the client will continue to render
             return True
         # if self._timer.step > 0:
-            # print(f'Time elapsed between loops :{self._timer.elapsed_seconds_since_lap()}\n')
+        # print(f'Time elapsed between loops :{self._timer.elapsed_seconds_since_lap()}\n')
         self._timer.lap()
         self._timer.tick()
         self.world.tick()
@@ -446,27 +612,43 @@ class CarlaGame(object):
             except Empty:
                 print("[Warning] Some sensor data has been missed")
                 continue
-            
+
         assert image_data.frame == lidar_data.frame == world_frame
 
         self._last_player_location = self.player.get_location()
         self.image_data = image_data
         self.lidar_data = lidar_data
         self.camera_seg_data = camera_seg_data
+
         # Get the raw BGRA buffer and convert it to an array of RGB of
         # shape (image_data.height, image_data.width, 3).
         im_array = self.get_rgb_array_from_carla_image(image_data)
         im_seg_array = self.get_rgb_array_from_carla_image(camera_seg_data)
+
+        # Process LIDAR data
         p_cloud_size = len(lidar_data)
-        p_cloud = np.copy(np.frombuffer(lidar_data.raw_data, dtype=np.dtype('f4')))
+        p_cloud = np.copy(np.frombuffer(lidar_data.raw_data, dtype=np.dtype("f4")))
         p_cloud = np.reshape(p_cloud, (p_cloud_size, 4))
         local_lidar_points = np.array(p_cloud[:, :3]).T
+
+        # Get transformation matrices
         self.vel_2_ref = self.lidar.get_transform().get_matrix()
         self.extrinsic = self.camera.get_transform().get_inverse_matrix()
-        u_coord, v_coord, mask = self.lidar_to_camera_trans(local_lidar_points, self.vel_2_ref, self.extrinsic, self.intrinsic, image_data.width, image_data.height)
+
+        # Project LIDAR points to camera image
+        u_coord, v_coord, mask = self.lidar_to_camera_trans(
+            local_lidar_points,
+            self.vel_2_ref,
+            self.extrinsic,
+            self.intrinsic,
+            image_data.width,
+            image_data.height,
+        )
+
+        # Colorize LIDAR points based on semantic segmentation
         color_map = LABEL_COLORS[im_seg_array[:, :, 0][v_coord, u_coord]]
         dot_extent = 1
-        p_cloud_rgb = np.copy(im_array[v_coord, u_coord,:])
+        p_cloud_rgb = np.copy(im_array[v_coord, u_coord, :])
         im_array[v_coord, u_coord] = color_map
         # for i in range(len(u_coord)):
         #         im_array[
@@ -474,8 +656,14 @@ class CarlaGame(object):
         #             u_coord[i]-dot_extent : u_coord[i]+dot_extent] = color_map[i]
 
         self._main_image = im_array
-        self.p_cloud_labels = CARLA_2_KITTI_LABEL_MAP[im_seg_array[:, :, 0][v_coord, u_coord]].astype('int32')
-        self.p_cloud = np.concatenate((p_cloud[mask], p_cloud_rgb.astype(np.float32)), axis=-1)
+        self.p_cloud_labels = CARLA_2_KITTI_LABEL_MAP[
+            im_seg_array[:, :, 0][v_coord, u_coord]
+        ].astype("int32")
+        self.p_cloud = np.concatenate(
+            (p_cloud[mask], p_cloud_rgb.astype(np.float32)), axis=-1
+        )
+
+        # Handle user input and vehicle control
         control = self._get_keyboard_control(pygame.key.get_pressed())
         if control is None:
             self._on_new_episode()
@@ -487,34 +675,51 @@ class CarlaGame(object):
         else:
             self.player.set_autopilot(False)
 
-
-
     def _get_keyboard_control(self, keys):
         """
         Return a VehicleControl message based on the pressed keys. Return None
         if a new episode was requested.
+
+        Args:
+            keys: Pygame key state
+
+        Returns:
+            carla.VehicleControl or None: Vehicle control command or None for episode reset
         """
         control = KeyboardHelper.get_keyboard_control(
-            keys, self._is_on_reverse, self._enable_autopilot)
+            keys, self._is_on_reverse, self._enable_autopilot
+        )
         if control is not None:
             control, self._is_on_reverse, self._enable_autopilot = control
         return control
 
     def _on_render(self):
+        """
+        Render the current frame and handle data saving.
 
+        This method:
+        1. Displays the current camera image with LIDAR overlay
+        2. Checks if enough time/distance has passed for data collection
+        3. Saves training data when conditions are met
+        """
         if self._main_image is not None:
             # Convert main image
 
             # Retrieve and draw datapoints
             # Display image
-            surface = pygame.surfarray.make_surface(self._main_image.copy().swapaxes(0, 1))
+            surface = pygame.surfarray.make_surface(
+                self._main_image.copy().swapaxes(0, 1)
+            )
             self._display.blit(surface, (0, 0))
             pygame.display.flip()
 
             # Determine whether to save files
             distance_driven = self._distance_since_last_recording()
-            #print("Distance driven since last recording: {}".format(distance_driven))
-            has_driven_long_enough = distance_driven is None or distance_driven > DISTANCE_SINCE_LAST_RECORDING
+            # print("Distance driven since last recording: {}".format(distance_driven))
+            has_driven_long_enough = (
+                distance_driven is None
+                or distance_driven > DISTANCE_SINCE_LAST_RECORDING
+            )
             if (self._timer.step + 1) % STEPS_BETWEEN_RECORDINGS == 0:
                 if has_driven_long_enough:
                     # Save screen, lidar and kitti training labels together with calibration and groundplane files
@@ -523,26 +728,52 @@ class CarlaGame(object):
                     self.captured_frame_no += 1
                     self._captured_frames_since_restart += 1
                 else:
-                    logging.debug("Could save datapoint, but agent has not driven {} meters since last recording (Currently {} meters)".format(
-                        DISTANCE_SINCE_LAST_RECORDING, distance_driven))
+                    logging.debug(
+                        "Could save datapoint, but agent has not driven {} meters since last recording (Currently {} meters)".format(
+                            DISTANCE_SINCE_LAST_RECORDING, distance_driven
+                        )
+                    )
 
     def _distance_since_last_recording(self):
+        """
+        Calculate the distance driven since the last data recording.
+
+        Returns:
+            float or None: Distance in meters, or None if no previous recording
+        """
         if self._agent_location_on_last_capture is None:
             return None
         cur_pos = vector3d_to_array(self.player.get_location())
         last_pos = vector3d_to_array(self._agent_location_on_last_capture)
-        def dist_func(x, y): return np.sqrt(((x - y)**2).sum())
+
+        def dist_func(x, y):
+            return np.sqrt(((x - y) ** 2).sum())
 
         return dist_func(cur_pos, last_pos)
 
     def _update_agent_location(self):
+        """
+        Update the stored agent location for distance tracking.
+        """
         self._agent_location_on_last_capture = self.player.get_location()
-        
+
     def _save_training_files(self):
+        """
+        Save all training data files including images, LIDAR data, labels, and calibration.
+
+        This method saves:
+        - RGB camera image
+        - LIDAR point cloud with RGB values
+        - Semantic labels for LIDAR points
+        - Camera calibration matrices
+        """
         # self.extrinsic = np.dot(unreal_to_world_cam, self.camera.get_transform().get_inverse_matrix())
         # self.vel_2_ref = np.dot(self.lidar.get_transform(), unreal_to_world_3d)
-        logging.info("Attempting to save at timer step {}, frame no: {}".format(
-            self._timer.step, self.captured_frame_no))
+        logging.info(
+            "Attempting to save at timer step {}, frame no: {}".format(
+                self._timer.step, self.captured_frame_no
+            )
+        )
         lidar_fname = LIDAR_PATH.format(self.captured_frame_no)
         label_fname = LABEL_PATH.format(self.captured_frame_no)
         img_fname = IMAGE_PATH.format(self.captured_frame_no)
@@ -552,14 +783,22 @@ class CarlaGame(object):
         save_image_data(img_fname, self._main_image)
         save_lidar_data(lidar_fname, self.p_cloud)
         save_lidar_labels(label_fname, self.p_cloud_labels)
-        save_calibration_matrices(calib_filename, self.intrinsic, self.extrinsic, self.vel_2_ref)
+        save_calibration_matrices(
+            calib_filename, self.intrinsic, self.extrinsic, self.vel_2_ref
+        )
 
     def destroy(self):
+        """
+        Clean up all actors and sensors in the CARLA world.
+
+        This method destroys:
+        - All sensors (camera, LIDAR)
+        - Player vehicle
+        - All pedestrians and their controllers
+        - All other vehicles
+        """
         if not self.just_destroyed:
-            sensors = [
-                self.camera,
-                self.camera_seg,
-                self.lidar]
+            sensors = [self.camera, self.camera_seg, self.lidar]
             for sensor in sensors:
                 if sensor is not None:
                     sensor.stop()
@@ -572,49 +811,75 @@ class CarlaGame(object):
             vehicle_and_walkers = []
             vehicle_and_walkers.extend(self.vehicles_actors)
             vehicle_and_walkers.extend(self.all_id)
-            self.client.apply_batch([carla.command.DestroyActor(x) for x in vehicle_and_walkers])
-            print('\ndestroying %d actors' % int(len(self.all_id)//2 + len(self.vehicles_actors)))
+            self.client.apply_batch(
+                [carla.command.DestroyActor(x) for x in vehicle_and_walkers]
+            )
+            print(
+                "\ndestroying %d actors"
+                % int(len(self.all_id) // 2 + len(self.vehicles_actors))
+            )
             self.just_destroyed = True
             time.sleep(0.5)
         else:
-            print('destroy has been just called\n')
-
+            print("destroy has been just called\n")
 
 
 def parse_args():
-    argparser = argparse.ArgumentParser(
-        description='CARLA Manual Control Client')
+    """
+    Parse command line arguments for the CARLA data generation script.
+
+    Returns:
+        argparse.Namespace: Parsed command line arguments
+    """
+    argparser = argparse.ArgumentParser(description="CARLA Manual Control Client")
     argparser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        dest='debug',
-        help='logging.info debug information')
+        "-v",
+        "--verbose",
+        action="store_true",
+        dest="debug",
+        help="logging.info debug information",
+    )
     argparser.add_argument(
-        '--host',
-        metavar='H',
-        default='localhost',
-        help='IP of the host server (default: localhost)')
+        "--host",
+        metavar="H",
+        default="localhost",
+        help="IP of the host server (default: localhost)",
+    )
     argparser.add_argument(
-        '-p', '--port',
-        metavar='P',
+        "-p",
+        "--port",
+        metavar="P",
         default=2000,
         type=int,
-        help='TCP port to listen to (default: 2000)')
+        help="TCP port to listen to (default: 2000)",
+    )
     argparser.add_argument(
-        '-m', '--map-name',
-        metavar='M',
+        "-m",
+        "--map-name",
+        metavar="M",
         default=None,
-        help='plot the map of the current city (needs to match active map in '
-             'server, options: Town01 or Town02)')
+        help="plot the map of the current city (needs to match active map in "
+        "server, options: Town01 or Town02)",
+    )
     args = argparser.parse_args()
     return args
 
 
 def main():
+    """
+    Main function that initializes the CARLA client and runs the data generation game.
+
+    This function:
+    1. Parses command line arguments
+    2. Sets up logging
+    3. Connects to CARLA server
+    4. Creates and runs the CarlaGame instance
+    5. Handles cleanup on exit
+    """
     args = parse_args()
     log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
-    logging.info('listening to server %s:%s', args.host, args.port)
+    logging.basicConfig(format="%(levelname)s: %(message)s", level=log_level)
+    logging.info("listening to server %s:%s", args.host, args.port)
     logging.info(__doc__)
     game = None
     try:
@@ -626,8 +891,8 @@ def main():
     except KeyboardInterrupt:
         if game is not None:
             game.destroy()
-        logging.info('\nCancelled by user. Bye!')
+        logging.info("\nCancelled by user. Bye!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

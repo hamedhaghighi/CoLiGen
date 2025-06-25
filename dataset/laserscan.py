@@ -4,312 +4,340 @@ import numpy as np
 
 
 class LaserScan:
-  """Class that contains LaserScan with x,y,z,r"""
-  EXTENSIONS_SCAN = ['.bin']
+    """Class that contains LaserScan with x,y,z,r"""
 
-  def __init__(self, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45, have_rgb=False):
-    self.project = project
-    self.proj_H = H
-    self.proj_W = W
-    self.proj_fov_up = fov_up
-    self.proj_fov_down = fov_down
-    self.proj_foh_left = foh_left
-    self.proj_foh_right = foh_right
-    self.have_rgb = have_rgb
-    self.reset()
+    EXTENSIONS_SCAN = [".bin"]
 
-  def reset(self):
-    """ Reset scan members. """
-    self.points = np.zeros((0, 3), dtype=np.float32)        # [m, 3]: x, y, z
-    self.remissions = np.zeros((0, 1), dtype=np.float32)    # [m ,1]: remission
+    def __init__(
+        self,
+        project=False,
+        H=64,
+        W=256,
+        fov_up=3.0,
+        fov_down=-25.0,
+        foh_left=45,
+        foh_right=-45,
+        have_rgb=False,
+    ):
+        self.project = project
+        self.proj_H = H
+        self.proj_W = W
+        self.proj_fov_up = fov_up
+        self.proj_fov_down = fov_down
+        self.proj_foh_left = foh_left
+        self.proj_foh_right = foh_right
+        self.have_rgb = have_rgb
+        self.reset()
 
-    # projected range image - [H,W] range (-1 is no data)
-    self.proj_range = np.full((self.proj_H, self.proj_W), -1,
-                              dtype=np.float32)
+    def reset(self):
+        """Reset scan members."""
+        self.points = np.zeros((0, 3), dtype=np.float32)  # [m, 3]: x, y, z
+        self.remissions = np.zeros((0, 1), dtype=np.float32)  # [m ,1]: remission
 
-    # unprojected range (list of depths for each point)
-    self.unproj_range = np.zeros((0, 1), dtype=np.float32)
+        # projected range image - [H,W] range (-1 is no data)
+        self.proj_range = np.full((self.proj_H, self.proj_W), -1, dtype=np.float32)
 
-    # projected point cloud xyz - [H,W,3] xyz coord (-1 is no data)
-    self.proj_xyz = np.full((self.proj_H, self.proj_W, 3), -1,
-                            dtype=np.float32)
+        # unprojected range (list of depths for each point)
+        self.unproj_range = np.zeros((0, 1), dtype=np.float32)
 
-    # projected remission - [H,W] intensity (-1 is no data)
-    self.proj_remission = np.full((self.proj_H, self.proj_W), -1,
-                                  dtype=np.float32)
-    self.proj_points_rgb = np.full((self.proj_H, self.proj_W, 3), 0,
-                                   dtype=np.uint8) if self.have_rgb else None
-    # projected index (for each pixel, what I am in the pointcloud)
-    # [H,W] index (-1 is no data)
-    self.proj_idx = np.full((self.proj_H, self.proj_W), -1,
-                            dtype=np.int32)
+        # projected point cloud xyz - [H,W,3] xyz coord (-1 is no data)
+        self.proj_xyz = np.full((self.proj_H, self.proj_W, 3), -1, dtype=np.float32)
 
-    # for each point, where it is in the range image
-    self.proj_x = np.zeros((0, 1), dtype=np.int32)        # [m, 1]: x
-    self.proj_y = np.zeros((0, 1), dtype=np.int32)        # [m, 1]: y
+        # projected remission - [H,W] intensity (-1 is no data)
+        self.proj_remission = np.full((self.proj_H, self.proj_W), -1, dtype=np.float32)
+        self.proj_points_rgb = (
+            np.full((self.proj_H, self.proj_W, 3), 0, dtype=np.uint8)
+            if self.have_rgb
+            else None
+        )
+        # projected index (for each pixel, what I am in the pointcloud)
+        # [H,W] index (-1 is no data)
+        self.proj_idx = np.full((self.proj_H, self.proj_W), -1, dtype=np.int32)
 
-    # mask containing for each pixel, if it contains a point or not
-    self.proj_mask = np.ones((self.proj_H, self.proj_W),
-                              dtype=np.int32)       # [H,W] mask
+        # for each point, where it is in the range image
+        self.proj_x = np.zeros((0, 1), dtype=np.int32)  # [m, 1]: x
+        self.proj_y = np.zeros((0, 1), dtype=np.int32)  # [m, 1]: y
 
-  def size(self):
-    """ Return the size of the point cloud. """
-    return self.points.shape[0]
+        # mask containing for each pixel, if it contains a point or not
+        self.proj_mask = np.ones(
+            (self.proj_H, self.proj_W), dtype=np.int32
+        )  # [H,W] mask
 
-  def __len__(self):
-    return self.size()
+    def size(self):
+        """Return the size of the point cloud."""
+        return self.points.shape[0]
 
-  def open_scan(self, filename):
-    """ Open raw scan and fill in attributes
-    """
-    # reset just in case there was an open structure
-    self.reset()
+    def __len__(self):
+        return self.size()
 
-    # check filename is string
-    if not isinstance(filename, str):
-      raise TypeError("Filename should be string type, "
-                      "but was {type}".format(type=str(type(filename))))
+    def open_scan(self, filename):
+        """Open raw scan and fill in attributes"""
+        # reset just in case there was an open structure
+        self.reset()
 
-    # check extension is a laserscan
-    if not any(filename.endswith(ext) for ext in self.EXTENSIONS_SCAN):
-      raise RuntimeError("Filename extension is not valid scan file.")
+        # check filename is string
+        if not isinstance(filename, str):
+            raise TypeError(
+                "Filename should be string type, "
+                "but was {type}".format(type=str(type(filename)))
+            )
 
-    # if all goes well, open pointcloud
-    scan = np.fromfile(filename, dtype=np.float32)
-    channels = 7 if self.have_rgb else 4
-    scan = scan.reshape((-1, channels))
-    # put in attribute
-    points = scan[:, 0:3]    # get xyz
-    remissions = scan[:, 3]  # get remission
-    self.points_rgb = scan[:, 4:].astype('uint8') if self.have_rgb else None
-    self.set_points(points, remissions)
+        # check extension is a laserscan
+        if not any(filename.endswith(ext) for ext in self.EXTENSIONS_SCAN):
+            raise RuntimeError("Filename extension is not valid scan file.")
 
-  def set_points(self, points, remissions=None):
-    """ Set scan attributes (instead of opening from file)
-    """
-    # reset just in case there was an open structure
-    self.reset()
+        # if all goes well, open pointcloud
+        scan = np.fromfile(filename, dtype=np.float32)
+        channels = 7 if self.have_rgb else 4
+        scan = scan.reshape((-1, channels))
+        # put in attribute
+        points = scan[:, 0:3]  # get xyz
+        remissions = scan[:, 3]  # get remission
+        self.points_rgb = scan[:, 4:].astype("uint8") if self.have_rgb else None
+        self.set_points(points, remissions)
 
-    # check scan makes sense
-    if not isinstance(points, np.ndarray):
-      raise TypeError("Scan should be numpy array")
+    def set_points(self, points, remissions=None):
+        """Set scan attributes (instead of opening from file)"""
+        # reset just in case there was an open structure
+        self.reset()
 
-    # check remission makes sense
-    if remissions is not None and not isinstance(remissions, np.ndarray):
-      raise TypeError("Remissions should be numpy array")
+        # check scan makes sense
+        if not isinstance(points, np.ndarray):
+            raise TypeError("Scan should be numpy array")
 
-    # put in attribute
-    self.points = points    # get xyz
-    if remissions is not None:
-      self.remissions = remissions  # get remission
-    else:
-      self.remissions = np.zeros((points.shape[0]), dtype=np.float32)
+        # check remission makes sense
+        if remissions is not None and not isinstance(remissions, np.ndarray):
+            raise TypeError("Remissions should be numpy array")
 
-    # if projection is wanted, then do it and fill in the structure
-    if self.project:
-      self.do_range_projection()
+        # put in attribute
+        self.points = points  # get xyz
+        if remissions is not None:
+            self.remissions = remissions  # get remission
+        else:
+            self.remissions = np.zeros((points.shape[0]), dtype=np.float32)
 
-  def do_range_projection(self):
-    """ Project a pointcloud into a spherical projection image.projection.
+        # if projection is wanted, then do it and fill in the structure
+        if self.project:
+            self.do_range_projection()
+
+    def do_range_projection(self):
+        """Project a pointcloud into a spherical projection image.projection.
         Function takes no arguments because it can be also called externally
         if the value of the constructor was not set (in case you change your
         mind about wanting the projection)
-    """
-    # laser parameters
-    fov_up = self.proj_fov_up / 180.0 * np.pi      # field of view up in rad
-    fov_down = self.proj_fov_down / 180.0 * np.pi  # field of view down in rad
-    fov = abs(fov_down) + abs(fov_up)  # get field of view total in rad
-    foh_left = self.proj_foh_left / 180.0* np.pi
-    foh_right = self.proj_foh_right / 180.0 * np.pi
-    foh = abs(foh_left) + abs(foh_right)
+        """
+        # laser parameters
+        fov_up = self.proj_fov_up / 180.0 * np.pi  # field of view up in rad
+        fov_down = self.proj_fov_down / 180.0 * np.pi  # field of view down in rad
+        fov = abs(fov_down) + abs(fov_up)  # get field of view total in rad
+        foh_left = self.proj_foh_left / 180.0 * np.pi
+        foh_right = self.proj_foh_right / 180.0 * np.pi
+        foh = abs(foh_left) + abs(foh_right)
 
-    # get depth of all points
-    depth = np.linalg.norm(self.points, 2, axis=1)
+        # get depth of all points
+        depth = np.linalg.norm(self.points, 2, axis=1)
 
-    # get scan components
-    scan_x = self.points[:, 0]
-    scan_y = self.points[:, 1]
-    scan_z = self.points[:, 2]
+        # get scan components
+        scan_x = self.points[:, 0]
+        scan_y = self.points[:, 1]
+        scan_z = self.points[:, 2]
 
-    # get angles of all points
-    yaw = -np.arctan2(scan_y, scan_x)
-    pitch = np.arcsin(scan_z / depth)
+        # get angles of all points
+        yaw = -np.arctan2(scan_y, scan_x)
+        pitch = np.arcsin(scan_z / depth)
 
-    # get projections in image coords
-    # proj_x = 0.5 * (yaw / np.pi + 1.0)          # in [0.0, 1.0]
-    proj_x  = (yaw + foh_left)/foh
-    proj_y = 1.0 - (pitch + abs(fov_down)) / fov        # in [0.0, 1.0]
-    mask = np.logical_and(proj_x >= 0, proj_x <= 1)
-    self.foh_mask = mask
-    self.points = self.points[mask]
-    self.remissions = self.remissions[mask]
-    if self.points_rgb is not None:
-      self.points_rgb = self.points_rgb[mask]
-    depth = depth[mask]
-    proj_x = proj_x[mask]
-    proj_y = proj_y[mask]
-    
-    
+        # get projections in image coords
+        # proj_x = 0.5 * (yaw / np.pi + 1.0)          # in [0.0, 1.0]
+        proj_x = (yaw + foh_left) / foh
+        proj_y = 1.0 - (pitch + abs(fov_down)) / fov  # in [0.0, 1.0]
+        mask = np.logical_and(proj_x >= 0, proj_x <= 1)
+        self.foh_mask = mask
+        self.points = self.points[mask]
+        self.remissions = self.remissions[mask]
+        if self.points_rgb is not None:
+            self.points_rgb = self.points_rgb[mask]
+        depth = depth[mask]
+        proj_x = proj_x[mask]
+        proj_y = proj_y[mask]
 
-    # scale to image size using angular resolution
-    proj_x *= self.proj_W                              # in [0.0, W]
-    proj_y *= self.proj_H                              # in [0.0, H]
+        # scale to image size using angular resolution
+        proj_x *= self.proj_W  # in [0.0, W]
+        proj_y *= self.proj_H  # in [0.0, H]
 
-    # round and clamp for use as index
-    proj_x = np.floor(proj_x)
-    proj_x = np.minimum(self.proj_W - 1, proj_x)
-    proj_x = np.maximum(0, proj_x).astype(np.int32)   # in [0,W-1]
-    self.proj_x = np.copy(proj_x)  # store a copy in orig order
+        # round and clamp for use as index
+        proj_x = np.floor(proj_x)
+        proj_x = np.minimum(self.proj_W - 1, proj_x)
+        proj_x = np.maximum(0, proj_x).astype(np.int32)  # in [0,W-1]
+        self.proj_x = np.copy(proj_x)  # store a copy in orig order
 
-    proj_y = np.floor(proj_y)
-    proj_y = np.minimum(self.proj_H - 1, proj_y)
-    proj_y = np.maximum(0, proj_y).astype(np.int32)   # in [0,H-1]
-    self.proj_y = np.copy(proj_y)  # stope a copy in original order
+        proj_y = np.floor(proj_y)
+        proj_y = np.minimum(self.proj_H - 1, proj_y)
+        proj_y = np.maximum(0, proj_y).astype(np.int32)  # in [0,H-1]
+        self.proj_y = np.copy(proj_y)  # stope a copy in original order
 
-    # copy of depth in original order
-    self.unproj_range = np.copy(depth)
-    # order in decreasing depth
-    indices = np.arange(depth.shape[0])
-    order = np.argsort(depth)[::-1]
-    depth = depth[order]
-    indices = indices[order]
-    points = self.points[order]
-    remission = self.remissions[order]
-  
-    points_rgb = self.points_rgb[order] if self.points_rgb is not None else None
-    proj_y = proj_y[order]
-    proj_x = proj_x[order]
+        # copy of depth in original order
+        self.unproj_range = np.copy(depth)
+        # order in decreasing depth
+        indices = np.arange(depth.shape[0])
+        order = np.argsort(depth)[::-1]
+        depth = depth[order]
+        indices = indices[order]
+        points = self.points[order]
+        remission = self.remissions[order]
 
-    # assing to images
-    self.proj_range[proj_y, proj_x] = depth
-    self.proj_xyz[proj_y, proj_x] = points
-    self.proj_remission[proj_y, proj_x] = remission
-    if points_rgb is not None:
-      self.proj_points_rgb[proj_y, proj_x] = points_rgb
-    self.proj_idx[proj_y, proj_x] = indices
-    self.proj_mask = (self.proj_idx >= 0).astype(np.int32)
-    
-    
+        points_rgb = self.points_rgb[order] if self.points_rgb is not None else None
+        proj_y = proj_y[order]
+        proj_x = proj_x[order]
+
+        # assing to images
+        self.proj_range[proj_y, proj_x] = depth
+        self.proj_xyz[proj_y, proj_x] = points
+        self.proj_remission[proj_y, proj_x] = remission
+        if points_rgb is not None:
+            self.proj_points_rgb[proj_y, proj_x] = points_rgb
+        self.proj_idx[proj_y, proj_x] = indices
+        self.proj_mask = (self.proj_idx >= 0).astype(np.int32)
+
 
 class SemLaserScan(LaserScan):
-  """Class that contains LaserScan with x,y,z,r,sem_label,sem_color_label,inst_label,inst_color_label"""
-  EXTENSIONS_LABEL = ['.label', 'bin']
+    """Class that contains LaserScan with x,y,z,r,sem_label,sem_color_label,inst_label,inst_color_label"""
 
-  def __init__(self,  sem_color_dict=None, project=False, H=64, W=256, fov_up=3.0, fov_down=-25.0, foh_left=45, foh_right=-45, max_classes=300, have_rgb=False):
-    super(SemLaserScan, self).__init__(project, H, W, fov_up, fov_down, foh_left, foh_right, have_rgb)
-    self.reset()
+    EXTENSIONS_LABEL = [".label", "bin"]
 
-    # make semantic colors
-    if sem_color_dict:
-      # if I have a dict, make it
-      max_sem_key = 0
-      for key, data in sem_color_dict.items():
-        if key + 1 > max_sem_key:
-          max_sem_key = key + 1
-      self.sem_color_lut = np.zeros((max_sem_key + 100, 3), dtype=np.float32)
-      for key, value in sem_color_dict.items():
-        self.sem_color_lut[key] = np.array(value, np.float32) / 255.0
-    else:
-      # otherwise make random
-      max_sem_key = max_classes
-      self.sem_color_lut = np.random.uniform(low=0.0,
-                                             high=1.0,
-                                             size=(max_sem_key, 3))
-      # force zero to a gray-ish color
-      self.sem_color_lut[0] = np.full((3), 0.1)
+    def __init__(
+        self,
+        sem_color_dict=None,
+        project=False,
+        H=64,
+        W=256,
+        fov_up=3.0,
+        fov_down=-25.0,
+        foh_left=45,
+        foh_right=-45,
+        max_classes=300,
+        have_rgb=False,
+    ):
+        super(SemLaserScan, self).__init__(
+            project, H, W, fov_up, fov_down, foh_left, foh_right, have_rgb
+        )
+        self.reset()
 
-    # make instance colors
-    max_inst_id = 100000
-    self.inst_color_lut = np.random.uniform(low=0.0,
-                                            high=1.0,
-                                            size=(max_inst_id, 3))
-    # force zero to a gray-ish color
-    self.inst_color_lut[0] = np.full((3), 0.1)
+        # make semantic colors
+        if sem_color_dict:
+            # if I have a dict, make it
+            max_sem_key = 0
+            for key, data in sem_color_dict.items():
+                if key + 1 > max_sem_key:
+                    max_sem_key = key + 1
+            self.sem_color_lut = np.zeros((max_sem_key + 100, 3), dtype=np.float32)
+            for key, value in sem_color_dict.items():
+                self.sem_color_lut[key] = np.array(value, np.float32) / 255.0
+        else:
+            # otherwise make random
+            max_sem_key = max_classes
+            self.sem_color_lut = np.random.uniform(
+                low=0.0, high=1.0, size=(max_sem_key, 3)
+            )
+            # force zero to a gray-ish color
+            self.sem_color_lut[0] = np.full((3), 0.1)
 
-  def reset(self):
-    """ Reset scan members. """
-    super(SemLaserScan, self).reset()
-    # semantic labels
-    self.sem_label = np.zeros((0, 1), dtype=np.int32)          # [m, 1]: label
-    self.sem_label_color = np.zeros((0, 3), dtype=np.float32)  # [m ,3]: color
+        # make instance colors
+        max_inst_id = 100000
+        self.inst_color_lut = np.random.uniform(
+            low=0.0, high=1.0, size=(max_inst_id, 3)
+        )
+        # force zero to a gray-ish color
+        self.inst_color_lut[0] = np.full((3), 0.1)
 
-    # instance labels
-    self.inst_label = np.zeros((0, 1), dtype=np.int32)          # [m, 1]: label
-    self.inst_label_color = np.zeros((0, 3), dtype=np.float32)  # [m ,3]: color
+    def reset(self):
+        """Reset scan members."""
+        super(SemLaserScan, self).reset()
+        # semantic labels
+        self.sem_label = np.zeros((0, 1), dtype=np.int32)  # [m, 1]: label
+        self.sem_label_color = np.zeros((0, 3), dtype=np.float32)  # [m ,3]: color
 
-    # projection color with semantic labels
-    self.proj_sem_label = np.zeros((self.proj_H, self.proj_W),
-                                   dtype=np.int32)              # [H,W]  label
-    self.proj_sem_color = np.zeros((self.proj_H, self.proj_W, 3),
-                                   dtype=np.float)              # [H,W,3] color
+        # instance labels
+        self.inst_label = np.zeros((0, 1), dtype=np.int32)  # [m, 1]: label
+        self.inst_label_color = np.zeros((0, 3), dtype=np.float32)  # [m ,3]: color
 
-    # projection color with instance labels
-    self.proj_inst_label = np.zeros((self.proj_H, self.proj_W),
-                                    dtype=np.int32)              # [H,W]  label
-    self.proj_inst_color = np.zeros((self.proj_H, self.proj_W, 3),
-                                    dtype=np.float)              # [H,W,3] color
+        # projection color with semantic labels
+        self.proj_sem_label = np.zeros(
+            (self.proj_H, self.proj_W), dtype=np.int32
+        )  # [H,W]  label
+        self.proj_sem_color = np.zeros(
+            (self.proj_H, self.proj_W, 3), dtype=np.float
+        )  # [H,W,3] color
 
-  def open_label(self, filename):
-    """ Open raw scan and fill in attributes
-    """
-    # check filename is string
-    if not isinstance(filename, str):
-      raise TypeError("Filename should be string type, "
-                      "but was {type}".format(type=str(type(filename))))
+        # projection color with instance labels
+        self.proj_inst_label = np.zeros(
+            (self.proj_H, self.proj_W), dtype=np.int32
+        )  # [H,W]  label
+        self.proj_inst_color = np.zeros(
+            (self.proj_H, self.proj_W, 3), dtype=np.float
+        )  # [H,W,3] color
 
-    # check extension is a laserscan
-    if not any(filename.endswith(ext) for ext in self.EXTENSIONS_LABEL):
-      raise RuntimeError("Filename extension is not valid label file.")
+    def open_label(self, filename):
+        """Open raw scan and fill in attributes"""
+        # check filename is string
+        if not isinstance(filename, str):
+            raise TypeError(
+                "Filename should be string type, "
+                "but was {type}".format(type=str(type(filename)))
+            )
 
-    # if all goes well, open label
-    label = np.fromfile(filename, dtype=np.int32)
-    label = label.reshape((-1))[self.foh_mask]
-    # set it
-    self.set_label(label)
+        # check extension is a laserscan
+        if not any(filename.endswith(ext) for ext in self.EXTENSIONS_LABEL):
+            raise RuntimeError("Filename extension is not valid label file.")
 
-  def set_label(self, label):
-    """ Set points for label not from file but from np
-    """
-    # check label makes sense
-    if not isinstance(label, np.ndarray):
-      raise TypeError("Label should be numpy array")
+        # if all goes well, open label
+        label = np.fromfile(filename, dtype=np.int32)
+        label = label.reshape((-1))[self.foh_mask]
+        # set it
+        self.set_label(label)
 
-    # only fill in attribute if the right size
-    if label.shape[0] == self.points.shape[0]:
-      self.sem_label = label & 0xFFFF  # semantic label in lower half
-      self.inst_label = label >> 16    # instance id in upper half
-    else:
-      print("Points shape: ", self.points.shape)
-      print("Label shape: ", label.shape)
-      raise ValueError("Scan and Label don't contain same number of points")
+    def set_label(self, label):
+        """Set points for label not from file but from np"""
+        # check label makes sense
+        if not isinstance(label, np.ndarray):
+            raise TypeError("Label should be numpy array")
 
-    # sanity check
-    assert((self.sem_label + (self.inst_label << 16) == label).all())
+        # only fill in attribute if the right size
+        if label.shape[0] == self.points.shape[0]:
+            self.sem_label = label & 0xFFFF  # semantic label in lower half
+            self.inst_label = label >> 16  # instance id in upper half
+        else:
+            print("Points shape: ", self.points.shape)
+            print("Label shape: ", label.shape)
+            raise ValueError("Scan and Label don't contain same number of points")
 
-    if self.project:
-      self.do_label_projection()
+        # sanity check
+        assert (self.sem_label + (self.inst_label << 16) == label).all()
 
-  def colorize(self):
-    """ Colorize pointcloud with the color of each semantic label
-    """
-    self.sem_label_color = self.sem_color_lut[self.sem_label]
-    self.sem_label_color = self.sem_label_color.reshape((-1, 3))
+        if self.project:
+            self.do_label_projection()
 
-    self.inst_label_color = self.inst_color_lut[self.inst_label]
-    self.inst_label_color = self.inst_label_color.reshape((-1, 3))
+    def colorize(self):
+        """Colorize pointcloud with the color of each semantic label"""
+        self.sem_label_color = self.sem_color_lut[self.sem_label]
+        self.sem_label_color = self.sem_label_color.reshape((-1, 3))
 
-  def do_label_projection(self):
-    # only map colors to labels that exist
-    # self.sem_label = self.sem_label[self.foh_mask]
-    # self.inst_label = self.inst_label[self.foh_mask]
-    mask = self.proj_idx >= 0
+        self.inst_label_color = self.inst_color_lut[self.inst_label]
+        self.inst_label_color = self.inst_label_color.reshape((-1, 3))
 
-    # semantics
-    self.proj_sem_label[mask] = self.sem_label[self.proj_idx[mask]]
-    self.proj_sem_color[mask] = self.sem_color_lut[self.sem_label[self.proj_idx[mask]]]
+    def do_label_projection(self):
+        # only map colors to labels that exist
+        # self.sem_label = self.sem_label[self.foh_mask]
+        # self.inst_label = self.inst_label[self.foh_mask]
+        mask = self.proj_idx >= 0
 
-    # instances
-    self.proj_inst_label[mask] = self.inst_label[self.proj_idx[mask]]
-    self.proj_inst_color[mask] = self.inst_color_lut[self.inst_label[self.proj_idx[mask]]]
+        # semantics
+        self.proj_sem_label[mask] = self.sem_label[self.proj_idx[mask]]
+        self.proj_sem_color[mask] = self.sem_color_lut[
+            self.sem_label[self.proj_idx[mask]]
+        ]
 
-  
+        # instances
+        self.proj_inst_label[mask] = self.inst_label[self.proj_idx[mask]]
+        self.proj_inst_color[mask] = self.inst_color_lut[
+            self.inst_label[self.proj_idx[mask]]
+        ]

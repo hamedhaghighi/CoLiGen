@@ -1,7 +1,6 @@
 # Code referenced from https://gist.github.com/gyglim/1f8dfb1b5c82627ae3efcfbbadb9f514
 
 import numpy as np
-
 from torch.utils.tensorboard import SummaryWriter
 
 

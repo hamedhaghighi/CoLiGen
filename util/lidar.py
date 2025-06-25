@@ -1,15 +1,11 @@
 import os
 
 import einops
+import numba
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-import numba
-
-import numpy as np
-
-
-
 
 labelmap = {
     0: 0,  # "unlabeled"
@@ -48,19 +44,77 @@ labelmap = {
     259: 5,  # "moving-other"-vehicle to "other-vehicle" ----------------mapped
 }
 
-wads_sensor_elevation = np.array([ 0.2590417 ,  0.19184671,  0.13995804,  0.08756319,  0.05235988,
-        0.03469716,  0.031765  ,  0.02876303,  0.02586578,  0.02288126,
-        0.01996656,  0.01698205,  0.01406736,  0.01108284,  0.00816814,
-        0.00518363,  0.00225147, -0.00069813, -0.00364773, -0.00657989,
-       -0.0095644 , -0.0124791 , -0.01544616, -0.01837831, -0.02136283,
-       -0.02427752, -0.02726203, -0.03015927, -0.03316123, -0.03609344,
-       -0.03906043, -0.0419752 , -0.0449597 , -0.047822  , -0.05084138,
-       -0.0537562 , -0.05672315, -0.05960306, -0.06262244, -0.06548472,
-       -0.0684867 , -0.07138395, -0.07436848, -0.07723089, -0.08025026,
-       -0.08307766, -0.0860796 , -0.08895943, -0.09196142, -0.09478885,
-       -0.09782571, -0.1006356 , -0.10363769, -0.10648251, -0.12397084,
-       -0.14135434, -0.15882494, -0.17601645, -0.19324297, -0.21024239,
-       -0.22713704, -0.2438223 , -0.33037347, -0.4352329 ], dtype=np.float32)
+wads_sensor_elevation = np.array(
+    [
+        0.2590417,
+        0.19184671,
+        0.13995804,
+        0.08756319,
+        0.05235988,
+        0.03469716,
+        0.031765,
+        0.02876303,
+        0.02586578,
+        0.02288126,
+        0.01996656,
+        0.01698205,
+        0.01406736,
+        0.01108284,
+        0.00816814,
+        0.00518363,
+        0.00225147,
+        -0.00069813,
+        -0.00364773,
+        -0.00657989,
+        -0.0095644,
+        -0.0124791,
+        -0.01544616,
+        -0.01837831,
+        -0.02136283,
+        -0.02427752,
+        -0.02726203,
+        -0.03015927,
+        -0.03316123,
+        -0.03609344,
+        -0.03906043,
+        -0.0419752,
+        -0.0449597,
+        -0.047822,
+        -0.05084138,
+        -0.0537562,
+        -0.05672315,
+        -0.05960306,
+        -0.06262244,
+        -0.06548472,
+        -0.0684867,
+        -0.07138395,
+        -0.07436848,
+        -0.07723089,
+        -0.08025026,
+        -0.08307766,
+        -0.0860796,
+        -0.08895943,
+        -0.09196142,
+        -0.09478885,
+        -0.09782571,
+        -0.1006356,
+        -0.10363769,
+        -0.10648251,
+        -0.12397084,
+        -0.14135434,
+        -0.15882494,
+        -0.17601645,
+        -0.19324297,
+        -0.21024239,
+        -0.22713704,
+        -0.2438223,
+        -0.33037347,
+        -0.4352329,
+    ],
+    dtype=np.float32,
+)
+
+
 # @numba.jit
 def scatter(arrary, index, value):
     for (h, w), v in zip(index, value):
@@ -77,7 +131,17 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, limited_view=False, tag=None, dataset_name=None):
+def point_cloud_to_xyz_image(
+    points,
+    H=64,
+    W=2048,
+    fov_up=3.0,
+    fov_down=-25.0,
+    is_sorted=True,
+    limited_view=False,
+    tag=None,
+    dataset_name=None,
+):
     if tag is not None:
         C = points.shape[1]
         proj = np.zeros((H * W, C), dtype=np.float32)
@@ -92,14 +156,14 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
     order = np.argsort(-depth)
     if not is_sorted:
         pitch = np.arcsin(z / depth)
-        if dataset_name == 'wads':
+        if dataset_name == "wads":
             grid_h = np.argmin(np.abs(pitch[:, None] - wads_sensor_elevation), axis=1)
         else:
-            fov_up = fov_up / 180.0 * np.pi      # field of view up in rad
-            fov_down = fov_down/ 180.0 * np.pi  # field of view down in rad
+            fov_up = fov_up / 180.0 * np.pi  # field of view up in rad
+            fov_down = fov_down / 180.0 * np.pi  # field of view down in rad
             fov = abs(fov_down) + abs(fov_up)
             grid_h = 1.0 - (pitch + abs(fov_down)) / fov
-            grid_h = np.clip(np.round(grid_h * H), 0, H-1)
+            grid_h = np.clip(np.round(grid_h * H), 0, H - 1)
     else:
         # the i-th quadrant
         # suppose the points are ordered counterclockwise
@@ -116,7 +180,7 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
         for i in reversed(range(len(start_inds))):
             grid_h[inds[i] : inds[i + 1]] = line_idx
             line_idx -= 1
-        
+
     # horizontal grid
     yaw = -np.arctan2(y, x)  # [-pi,pi]
     if limited_view:
@@ -127,6 +191,7 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
     grid = np.stack((grid_h, grid_w), axis=-1).astype(np.int32)
     proj = projection(points, grid, order, H, W)
     return proj, grid
+
 
 class Coordinate(nn.Module):
     def __init__(self, min_depth, max_depth, shape, drop_const=0) -> None:
@@ -167,12 +232,12 @@ class Coordinate(nn.Module):
             return depth
 
     def pol_to_xyz(self, polar):
-        assert polar.dim() == 4 # B, C, H, W
+        assert polar.dim() == 4  # B, C, H, W
         grid_cos = torch.cos(self.angle)
         grid_sin = torch.sin(self.angle)
         if grid_cos.shape[2] != polar.shape[2] or grid_cos.shape[3] != polar.shape[3]:
-            grid_cos = grid_cos[:, :, :polar.shape[2], :polar.shape[3]]
-            grid_sin = grid_sin[:, :, :polar.shape[2], :polar.shape[3]]
+            grid_cos = grid_cos[:, :, : polar.shape[2], : polar.shape[3]]
+            grid_sin = grid_sin[:, :, : polar.shape[2], : polar.shape[3]]
         grid_x = polar * grid_cos[:, [0]] * grid_cos[:, [1]]
         grid_y = polar * grid_cos[:, [0]] * grid_sin[:, [1]]
         grid_z = polar * grid_sin[:, [0]]
@@ -181,7 +246,7 @@ class Coordinate(nn.Module):
     def xyz_to_pol(self, xyz):
         return torch.norm(xyz, p=2, dim=1, keepdim=True)
 
-    def inv_to_xyz(self, inv_depth, tol=1e-8): # inv_depth [0, 1]
+    def inv_to_xyz(self, inv_depth, tol=1e-8):  # inv_depth [0, 1]
         valid = torch.abs(inv_depth - self.drop_const) > tol
         depth = self.revert_depth(inv_depth)  # [0,1] depth
         depth = depth * (self.max_depth - self.min_depth) + self.min_depth
@@ -239,22 +304,22 @@ class LiDAR(Coordinate):
     ):
         num_ring, num_points = cfg.height, cfg.width
         min_depth, max_depth = cfg.min_depth, cfg.max_depth
-        angle_dir = lambda dir: os.path.join(os.path.sep.join(dir.split(os.path.sep)[:-1]),'angles.pt')
+        angle_dir = lambda dir: os.path.join(
+            os.path.sep.join(dir.split(os.path.sep)[:-1]), "angles.pt"
+        )
         self.angle_file = angle_dir(cfg.data_dir)
         assert os.path.exists(self.angle_file), self.angle_file
         self.fov_down = cfg.fov_down
         self.fov_up = cfg.fov_up
         self.height, self.width = height, width
         super().__init__(
-            min_depth=min_depth,
-            max_depth=max_depth,
-            shape=(num_ring, num_points)
+            min_depth=min_depth, max_depth=max_depth, shape=(num_ring, num_points)
         )
 
     def init_coordmap(self, H, W):
         angle = torch.load(self.angle_file)[None]
-        # fov_up = self.fov_up / 180.0 * np.pi     
-        # fov_down = self.fov_down / 180.0 * np.pi  
+        # fov_up = self.fov_up / 180.0 * np.pi
+        # fov_down = self.fov_down / 180.0 * np.pi
         # fov = abs(fov_down) + abs(fov_up)
         # pitch = (1 - (torch.arange(H) / H)) * fov - abs(fov_down)
         # # if self.has_rgb:
@@ -265,6 +330,3 @@ class LiDAR(Coordinate):
         # angle = torch.stack([pitch_grid, yaw_grid], dim=0)[None]
         angle = F.interpolate(angle, size=(self.height, self.width), mode="bilinear")
         return angle
-
-
-
