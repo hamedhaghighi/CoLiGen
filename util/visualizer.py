@@ -38,7 +38,8 @@ def visualize_tensor(pts, depth, tag, ds_name):
     #                               lookat=[0.0, 0.0, 0.0],
     #                               up=[1.0, 0.0, 0.0])
     # offscreen rendering
-    render = rendering.OffscreenRenderer(1920, 1080, headless=True)
+    # render = rendering.OffscreenRenderer(1920, 1080, headless=True)
+    render = rendering.OffscreenRenderer(960, 540, headless=True)
     mtl = rendering.MaterialRecord()
     mtl.base_color = [1, 1, 1, 0.5]
     if ds_name == 'kitti' or ds_name == 'carla':
@@ -59,6 +60,8 @@ def visualize_tensor(pts, depth, tag, ds_name):
         # render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.5], [0, 0, 1])
         render.setup_camera(60.0, [0, 0, 0], [-0.3, 0, 0.2], [0, 0, 1])
         # render.setup_camera(60.0, [0, 0, 0], [-0.2, -0.4, 0.5], [0, 0, 1])
+    elif ds_name == 'wads':
+        render.setup_camera(60.0, [0, 0, 0], [0.0, 0, 0.3], [0, 0, 1])
     else:
         render.setup_camera(60.0, [0, 0, 0], [0.08, -0.1, 0.5], [0, 0, 1])
     pts_img = render.render_to_image()

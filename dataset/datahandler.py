@@ -6,7 +6,6 @@ from torch.utils.data import Dataset
 from torch.utils.data import Subset
 import torch.nn.functional as F
 from glob import glob
-from util.lidar import point_cloud_to_xyz_image
 from util import _map
 from dataset.kitti_odometry import KITTIOdometry
 from dataset.nuscene import NuScene
@@ -56,7 +55,7 @@ class BinaryScan(Dataset):
     return lut[label]
 
 def get_dataset(dataset_name, cfg, ds_cfg, data_dir, split, limited_view=False, is_ref_semposs=False, norm_label=False):
-  if dataset_name in ['kitti', 'carla', 'synthlidar', 'semanticPOSS']:
+  if dataset_name in ['kitti', 'carla', 'synthlidar', 'semanticPOSS', 'wads']:
     dataset = KITTIOdometry(
           data_dir,
           split,

@@ -1,3 +1,8 @@
+'''
+(1) for projecting and 
+(2) for calculating the azimuth and elevation angles after the projection
+'''
+
 import argparse
 import multiprocessing
 import os
@@ -134,8 +139,9 @@ def load_calib(root):
         return calib
 
 
-def process_point_clouds(point_path, H, W, dest_dir, calib=None, name=None):
-    is_sorted = name == 'kitti'
+def process_point_clouds(point_path, DATA, dest_dir, calib=None, name=None):
+    H, W, is_sorted = DATA.height, DATA.width, DATA.is_sorted
+    fov_up, fov_down = DATA.fov_up, DATA.fov_down
     def save_dir(x):
         prev_split = x.split(os.path.sep)
         seq_mode_filename = os.path.sep.join(prev_split[-4:])
@@ -149,7 +155,7 @@ def process_point_clouds(point_path, H, W, dest_dir, calib=None, name=None):
     if osp.exists(label_path):
         label = np.fromfile(label_path, dtype=np.int32)
         sem_label = label & 0xFFFF 
-        if name != 'semanticPOSS':
+        if name != 'semanticPOSS' and name != 'wads':
             sem_label = _map(sem_label, labelmap)
         points = np.concatenate([points, sem_label.astype('float32')[:, None]], axis=1)
     if osp.exists(image_path):
@@ -161,7 +167,7 @@ def process_point_clouds(point_path, H, W, dest_dir, calib=None, name=None):
 
     
     tag = np.fromfile(tag_path, dtype=np.bool) if osp.exists(tag_path) else None
-    proj, _ = point_cloud_to_xyz_image(points, H, W, is_sorted=is_sorted, tag=tag)
+    proj, _ = point_cloud_to_xyz_image(points, H, W, fov_up, fov_down, is_sorted=is_sorted, tag=tag, dataset_name=name)
 
 
     save_path = save_dir(point_path).replace(".bin", ".npy")
@@ -225,11 +231,12 @@ def compute_avg_angles(loader):
         x = xyz_batch[:, [0]]
         y = xyz_batch[:, [1]]
         z = xyz_batch[:, [2]]
-
         depth = torch.sqrt(x ** 2 + y ** 2 + z ** 2) * max_depth
         valid = (depth > 1e-8).float()
         summary["total_data"] += len(valid)
+  
         summary["total_valid"] += valid.sum(dim=0)  # (1,64,2048)
+        ############################
 
         r = torch.sqrt(x ** 2 + y ** 2)
         pitch = torch.atan2(z, r)
@@ -237,6 +244,7 @@ def compute_avg_angles(loader):
         summary["pitch"] += torch.sum(pitch * valid, dim=0)
         summary["yaw"] += torch.sum(yaw * valid, dim=0)
 
+############################
     summary["pitch"] = summary["pitch"] / summary["total_valid"] 
     summary["yaw"] = summary["yaw"] / summary["total_valid"] 
     angles = torch.cat([summary["pitch"], summary["yaw"]], dim=0)
@@ -247,9 +255,12 @@ def compute_avg_angles(loader):
 
     mean_valid = summary["total_valid"] / summary["total_data"]
     valid = (mean_valid > 0).float()
+    ############################
     angles[angles.isnan()] = 0.0
+
     angles = valid * angles + (1 - valid) * mean_angles
 
+########################################
     assert angles.isnan().sum() == 0
 
     return angles, mean_valid
@@ -266,7 +277,7 @@ if __name__ == "__main__":
     DATA =  make_class_from_dict(yaml.safe_load(open(f'configs/dataset_cfg/{args.dataset_name}_cfg.yml', 'r')))
     H, W = DATA.height, DATA.width
     if args.project:
-        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS']:
+        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS','wads']:
             # calib = load_calib(osp.join(args.root_dir, "dataset/sequences"))
             calib = None
             # H, W = 64, 2048
@@ -277,7 +288,7 @@ if __name__ == "__main__":
                     n_jobs=multiprocessing.cpu_count(), verbose=10, pre_dispatch="all"
                 )(
                     [
-                        joblib.delayed(process_point_clouds)(point_path, H, W, args.dest_dir, calib, args.dataset_name)
+                        joblib.delayed(process_point_clouds)(point_path, DATA, args.dest_dir, calib, args.dataset_name)
                         for point_path in point_paths
                     ]
                 )
@@ -304,7 +315,7 @@ if __name__ == "__main__":
                 ]
             ) 
     else:
-        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS']:
+        if args.dataset_name in ['kitti', 'carla', 'semanticPOSS','wads']:
             dataset = KITTIOdometry(
             args.root_dir,
             'train',

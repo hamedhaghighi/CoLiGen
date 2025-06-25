@@ -2,17 +2,32 @@
 # This file is covered by the LICENSE file in the root of this project.
 import numpy as np
 
+wads_sensor_elevation = np.array([
+        0.2590417 ,  0.19184671,  0.13995804,  0.08756319,  0.05235988,
+        0.03469716,  0.031765  ,  0.02876303,  0.02586578,  0.02288126,
+        0.01996656,  0.01698205,  0.01406736,  0.01108284,  0.00816814,
+        0.00518363,  0.00225147, -0.00069813, -0.00364773, -0.00657989,
+       -0.0095644 , -0.0124791 , -0.01544616, -0.01837831, -0.02136283,
+       -0.02427752, -0.02726203, -0.03015927, -0.03316123, -0.03609344,
+       -0.03906043, -0.0419752 , -0.0449597 , -0.047822  , -0.05084138,
+       -0.0537562 , -0.05672315, -0.05960306, -0.06262244, -0.06548472,
+       -0.0684867 , -0.07138395, -0.07436848, -0.07723089, -0.08025026,
+       -0.08307766, -0.0860796 , -0.08895943, -0.09196142, -0.09478885,
+       -0.09782571, -0.1006356 , -0.10363769, -0.10648251, -0.12397084,
+       -0.14135434, -0.15882494, -0.17601645, -0.19324297, -0.21024239,
+       -0.22713704, -0.2438223 , -0.33037347, -0.4352329 ], dtype=np.float32)
 
 class LaserScan:
   """Class that contains LaserScan with x,y,z,r"""
   EXTENSIONS_SCAN = ['.bin']
 
-  def __init__(self, project=False, H=64, W=1024, fov_up=3.0, fov_down=-25.0):
+  def __init__(self, project=False, H=64, W=1024, fov_up=3.0, fov_down=-25.0, dataset_name=None):
     self.project = project
     self.proj_H = H
     self.proj_W = W
     self.proj_fov_up = fov_up
     self.proj_fov_down = fov_down
+    self.dataset_name = dataset_name
     self.reset()
 
   def reset(self):
@@ -129,11 +144,14 @@ class LaserScan:
 
     # get projections in image coords
     proj_x = 0.5 * (yaw / np.pi + 1.0)          # in [0.0, 1.0]
-    proj_y = 1.0 - (pitch + abs(fov_down)) / fov        # in [0.0, 1.0]
+    if self.dataset_name == 'wads':
+      proj_y = np.argmin(np.abs(pitch[:, None] - wads_sensor_elevation), axis=1)
+    else:
+      proj_y = 1.0 - (pitch + abs(fov_down)) / fov        # in [0.0, 1.0]
+      proj_y *= self.proj_H                              # in [0.0, H]
 
     # scale to image size using angular resolution
     proj_x *= self.proj_W                              # in [0.0, W]
-    proj_y *= self.proj_H                              # in [0.0, H]
 
     # round and clamp for use as index
     proj_x = np.floor(proj_x)
@@ -171,8 +189,8 @@ class SemLaserScan(LaserScan):
   """Class that contains LaserScan with x,y,z,r,sem_label,sem_color_label,inst_label,inst_color_label"""
   EXTENSIONS_LABEL = ['.label']
 
-  def __init__(self,  sem_color_dict=None, project=False, H=64, W=1024, fov_up=3.0, fov_down=-25.0, max_classes=300):
-    super(SemLaserScan, self).__init__(project, H, W, fov_up, fov_down)
+  def __init__(self,  sem_color_dict=None, project=False, H=64, W=1024, fov_up=3.0, fov_down=-25.0, max_classes=300, dataset_name = None):
+    super(SemLaserScan, self).__init__(project, H, W, fov_up, fov_down, dataset_name)
     self.reset()
 
     # make semantic colors

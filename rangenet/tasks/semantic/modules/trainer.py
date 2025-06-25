@@ -34,7 +34,6 @@ class Trainer():
     self.datadir = datadir
     self.log = logdir
     self.path = path
-
     # put logger where it belongs
     self.tb_logger = Logger(self.log + "/tb")
     self.info = {"train_update": 0,
@@ -50,7 +49,7 @@ class Trainer():
                  "post_lr": 0}
 
     # get the data
-    parserPath = os.path.join(booger.TRAIN_PATH, "tasks", "semantic",  "dataset", self.DATA["name"], "parser.py")
+    parserPath = os.path.join(booger.TRAIN_PATH, "tasks", "semantic",  "dataset", 'kitti', "parser.py")
     parserModule = imp.load_source("parserModule", parserPath)
     self.parser = parserModule.Parser(root=self.datadir,
                                       train_sequences=self.DATA["split"]["train"],
@@ -65,7 +64,8 @@ class Trainer():
                                       batch_size=self.ARCH["train"]["batch_size"],
                                       workers=self.ARCH["train"]["workers"],
                                       gt=True,
-                                      shuffle_train=True)
+                                      shuffle_train=True,
+                                      dataset_name=self.DATA['name'])
 
     # weights for loss (and bias)
     # weights for loss (and bias)
@@ -83,9 +83,9 @@ class Trainer():
 
     # concatenate the encoder and the head
     with torch.no_grad():
-      self.model = Segmentator(self.ARCH,
-                               self.parser.get_n_classes(),
-                               self.path)
+      dataset_name = self.DATA['name']
+      self.model = Segmentator(cfg_path=self.path,
+                               dataset_name=dataset_name)
 
     # GPU?
     self.gpu = False
@@ -312,8 +312,16 @@ class Trainer():
       if self.gpu:
         proj_labels = proj_labels.cuda(non_blocking=True).long()
 
+      
+      in_vol = torch.cat([in_vol, proj_mask[:, None, ...]], dim=1)
       # compute output
-      output = model(in_vol, proj_mask)
+      B, C, H, W = in_vol.shape
+      resize_h = 64
+      resize_w = 1024
+      # if H != 64 or W != 1024: 
+      #   in_vol = F.interpolate(in_vol,  size=(resize_h, resize_w),  mode='bilinear',  align_corners=False)
+      #   proj_labels = F.interpolate(proj_labels[:, None, ...].float(),  size=(resize_h, resize_w),  mode='bilinear',  align_corners=False)[:, 0].long()
+      output, _ = model(in_vol)
       loss = criterion(torch.log(output.clamp(min=1e-8)), proj_labels)
 
       # compute gradient and do SGD step
@@ -408,9 +416,17 @@ class Trainer():
           proj_mask = proj_mask.cuda()
         if self.gpu:
           proj_labels = proj_labels.cuda(non_blocking=True).long()
-
+        in_vol = torch.cat([in_vol, proj_mask[:, None, ...]], dim=1)
         # compute output
-        output = model(in_vol, proj_mask)
+        B, C, H, W = in_vol.shape
+        resize_h = 64
+        resize_w = 1024
+        # if H != 64 or W != 1024: 
+        #   in_vol = F.interpolate(in_vol,  size=(resize_h, resize_w),  mode='bilinear',  align_corners=False)
+        #   proj_mask = F.interpolate(proj_mask[:, None, ...].float(),  size=(resize_h, resize_w),  mode='bilinear',  align_corners=False)[:, 0]
+        #   proj_labels = F.interpolate(proj_labels[:, None, ...].float(),  size=(resize_h, resize_w),  mode='bilinear',  align_corners=False)[:, 0].long()        
+        
+        output, _ = model(in_vol)
         loss = criterion(torch.log(output.clamp(min=1e-8)), proj_labels)
 
         # measure accuracy and record loss
@@ -451,5 +467,5 @@ class Trainer():
       for i, jacc in enumerate(class_jaccard):
         print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
             i=i, class_str=class_func(i), jacc=jacc))
-
+    
     return acc.avg, iou.avg, losses.avg, rand_imgs

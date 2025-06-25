@@ -194,8 +194,10 @@ def main(runner_cfg_path=None):
     width=opt.dataset.dataset_A.img_prop.width).to(device)
     lidar = lidar_B if is_two_dataset else lidar_ref
     visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
-    g_steps = 0
-    ignore_label = [0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16]
+    if cl_args.ref_dataset_name == 'kitti' or cl_args.ref_dataset_name == 'wads':
+        ignore_label = [0, 2, 3, 4, 5, 7, 8, 10, 12, 16]
+    elif cl_args.ref_dataset_name == 'semanticPOSS':
+        ignore_label = [0, 3, 9]
 
     is_ref_semposs = cl_args.ref_dataset_name == 'semanticPOSS'
     val_dl, val_dataset = get_data_loader(opt, split, opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)
@@ -208,7 +210,7 @@ def main(runner_cfg_path=None):
     
     # test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False)
     with torch.no_grad():
-        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name if cl_args.seg_cfg_path == '' else 'synth', cfg_path=cl_args.seg_cfg_path).to(device)
+        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name, cfg_path=cl_args.seg_cfg_path).to(device)
         # seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
@@ -225,7 +227,6 @@ def main(runner_cfg_path=None):
     ##### validation
     val_losses = defaultdict(list)
     model.train(False)
-    tag = 'val' if opt.training.isTrain else 'test'
     val_tq = tqdm.tqdm(total=len(dataset_A_selected_idx), desc='val_Iter', position=5)
     for i, idx in enumerate(dataset_A_selected_idx):
         data = val_dataset[idx]
@@ -266,6 +267,8 @@ def main(runner_cfg_path=None):
         synth_reflectance = tanh_to_sigmoid(synth_reflectance)
         synth_data = torch.cat([synth_depth, synth_points, synth_reflectance, synth_mask], dim=1)
         pred, _ = seg_model(synth_data * fetched_data['mask'])
+        # iou, m_acc, prec, rec = compute_seg_accuracy(seg_model, synth_data * fetched_data['mask'], fetched_data['lwo'], ignore=ignore_label,\
+        #                                                           label_map=None)
         pred = pred.argmax(dim=1)
         model.real_label = model.real_label * fetched_data['mask'].long()
         current_visuals = model.get_current_visuals()

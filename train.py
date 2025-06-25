@@ -193,7 +193,7 @@ def main(runner_cfg_path=None):
     visualizer = Visualizer(opt)   # create a visualizer that display/save images and plots
     g_steps = 0
     min_fid = 10000
-    if cl_args.ref_dataset_name == 'kitti':
+    if cl_args.ref_dataset_name == 'kitti' or cl_args.ref_dataset_name == 'wads':
         ignore_label = [0, 2, 3, 4, 5, 7, 8, 10, 12, 16]
     elif cl_args.ref_dataset_name == 'semanticPOSS':
         ignore_label = [0, 3, 9]
@@ -203,7 +203,7 @@ def main(runner_cfg_path=None):
     val_dl, val_dataset = get_data_loader(opt, 'val' if (opt.training.isTrain or cl_args.on_input)  else 'test', opt.training.batch_size, shuffle=False, is_ref_semposs=is_ref_semposs)  
     test_dl, test_dataset = get_data_loader(opt, 'test', opt.training.batch_size, dataset_name=cl_args.ref_dataset_name, two_dataset_enabled=False, is_ref_semposs=is_ref_semposs)
     with torch.no_grad():
-        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name if cl_args.seg_cfg_path == '' else 'synth', cfg_path=cl_args.seg_cfg_path).to(device)
+        seg_model = Segmentator(dataset_name=cl_args.ref_dataset_name, cfg_path=cl_args.seg_cfg_path).to(device)
     model = create_model(opt, lidar_A, lidar_B)      # create a model given opt.model and other options
     model.set_seg_model(seg_model)               # regular setup: load and print networks; create schedulers
     ## initilisation of the model for netF in cut
@@ -302,13 +302,26 @@ def main(runner_cfg_path=None):
                     synth_mask = fetched_data['mask']
             else:
                 if hasattr(model, 'synth_reflectance'):
-                    synth_reflectance = model.synth_reflectance 
+                        synth_reflectance = model.synth_reflectance 
                 if hasattr(model, 'synth_mask'):
                     synth_mask = model.synth_mask
-                if hasattr(model, 'synth_inv') and not cl_args.no_inv:
+                if hasattr(model, 'synth_inv') and (not cl_args.no_inv or cl_args.ref_dataset_name == 'wads'):
                     synth_inv = model.synth_inv
                 else:
                     synth_inv = fetched_data['inv'] * synth_mask
+            # For snow I add only the generated snow
+            if cl_args.ref_dataset_name == 'wads' and not opt.training.isTrain and not cl_args.on_input and not cl_args.on_real and cl_args.no_inv:
+                s_depth = lidar.revert_depth(tanh_to_sigmoid(synth_inv), norm=False)
+                s_point = lidar.inv_to_xyz(tanh_to_sigmoid(synth_inv)) * lidar.max_depth
+                s_reflectance = tanh_to_sigmoid(synth_reflectance)
+                s_data = torch.cat([s_depth, s_point, s_reflectance, synth_mask], dim=1)
+                pred, _ = seg_model(s_data * fetched_data['mask'])
+                pred = pred.argmax(dim=1, keepdim=True)
+                is_snow = (pred == 20).float()
+                synth_reflectance = (is_snow * synth_reflectance + (1 - is_snow) * fetched_data['reflectance']) * synth_mask
+                synth_inv = (is_snow * synth_inv + (1 - is_snow) * fetched_data['inv']) * synth_mask
+                model.synth_inv = synth_inv
+                model.synth_reflectance = synth_reflectance
             
             data_dict['synth-2d'].append(synth_inv)
             data_dict['synth-3d'].append(inv_to_xyz(synth_inv, lidar))
@@ -331,7 +344,7 @@ def main(runner_cfg_path=None):
                 current_visuals = model.get_current_visuals()
                 if is_two_dataset:
                     visualizer.display_current_results(tag, current_visuals, g_steps, ds_cfg, opt.dataset.dataset_A.name, lidar_A, ds_cfg_B,\
-                            opt.dataset.dataset_B.name, lidar_B)
+                            opt.dataset.dataset_B.name, lidar_A if cl_args.ref_dataset_name == 'wads' and cl_args.no_inv else lidar_B)
                 else:
                     visualizer.display_current_results(tag, current_visuals, g_steps, ds_cfg, opt.dataset.dataset_A.name, lidar_A)
 

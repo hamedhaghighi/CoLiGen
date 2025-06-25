@@ -21,3 +21,6 @@ checkpoints_sp_new_cond/
 checkpoints_sp_new_cond_plus/
 checkpoints_sp_no_label_norm/
 checkpoints_new_lr
+rangenet/rangenet_weights_wads/
+rangenet_logs_wads/
+wads_checkpoints/

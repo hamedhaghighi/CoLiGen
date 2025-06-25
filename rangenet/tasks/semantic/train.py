@@ -10,6 +10,9 @@ import os
 import shutil
 import __init__ as booger
 
+import sys
+sys.path.append('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Documents/Lidar_intensity_modelling/rangenet/')
+
 from tasks.semantic.modules.trainer import *
 
 if __name__ == '__main__':

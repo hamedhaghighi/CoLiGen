@@ -5,6 +5,11 @@ import imp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import sys
+sys.path.append('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Documents/Lidar_intensity_modelling/')
+
+
 from rangenet.tasks.semantic.postproc.CRF import CRF
 import rangenet.tasks.semantic.__init__ as booger
 from tasks.semantic.postproc.KNN import KNN
@@ -23,15 +28,15 @@ class Segmentator(nn.Module):
       path = os.path.join('rangenet', 'rangenet_weights_sp')
       self.ARCH = yaml.safe_load(open('configs/sp_arch_cfg.yaml', 'r'))
       self.DATA = yaml.safe_load(open('configs/sp_data_cfg.yaml', 'r'))
-    elif dataset_name == 'synth':
+    elif dataset_name == 'synth' or dataset_name == 'wads':
       path = cfg_path
-      self.ARCH = yaml.safe_load(open(os.path.join(path, 'arch_cfg.yaml'), 'r'))
-      self.DATA = yaml.safe_load(open(os.path.join(path, 'data_cfg.yaml'), 'r'))
-    self.sensor_img_means = torch.tensor(self.DATA["sensor"]["img_means"], dtype=torch.float)
-    self.sensor_img_stds = torch.tensor(self.DATA["sensor"]["img_stds"], dtype=torch.float)
+      self.ARCH = yaml.safe_load(open(os.path.join(path, f'{dataset_name}_arch_cfg.yaml'), 'r'))
+      self.DATA = yaml.safe_load(open(os.path.join(path, f'{dataset_name}_data_cfg.yaml'), 'r'))
     self.nclasses = len(self.DATA["learning_map_inv"])
     self.strict = False
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    self.sensor_img_means = torch.tensor(self.DATA["sensor"]["img_means"], dtype=torch.float).to(self.device)
+    self.sensor_img_stds = torch.tensor(self.DATA["sensor"]["img_stds"], dtype=torch.float).to(self.device)
     if self.ARCH["post"]["KNN"]["use"]:
       self.post = KNN(self.ARCH["post"]["KNN"]["params"], self.nclasses)
     # get the model

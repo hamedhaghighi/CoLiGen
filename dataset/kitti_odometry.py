@@ -214,7 +214,7 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             if self.has_label:
                 labels_path = self.label_list[index]
                 sem_label = np.array(Image.open(labels_path))
-                if self.name == 'semanticPOSS':
+                if self.name == 'semanticPOSS' or self.name == 'wads':
                     sem_label = _map(sem_label, self.DATA.learning_map)
                 sem_label = _map(sem_label, self.DATA.m_learning_map)
                 points = np.concatenate([points, sem_label.astype('float32')[..., None]], axis=-1)
@@ -222,15 +222,12 @@ class  KITTIOdometry(torch.utils.data.Dataset):
                 rgb_path = self.rgb_list[index]
                 rgb = np.array(Image.open(rgb_path))
                 points = np.concatenate([points, rgb.astype('float32')], axis=-1)
-            # if self.limited_view:
-            #     _, W, _ = points.shape
-            #     points = points[:, int(3*W/8) : int(5*W/8), :]
 
         else:
             point_cloud = np.fromfile(points_path, dtype=np.float32).reshape((-1, 4))
             if self.has_label:
                 labels_path = self.label_list[index]
-                if self.name in ['kitti', 'carla', 'semanticPOSS']:
+                if self.name in ['kitti', 'carla', 'semanticPOSS', 'wads']:
                     label = np.fromfile(labels_path, dtype=np.int32)
                     sem_label = label & 0xFFFF 
                     sem_label = _map(_map(sem_label, self.DATA.learning_map), self.DATA.m_learning_map)
@@ -247,12 +244,12 @@ class  KITTIOdometry(torch.utils.data.Dataset):
             fov_up, fov_down = self.DATA.fov_up, self.DATA.fov_down
             
             tag = np.fromfile(self.tag_list[index], dtype = np.bool) if self.tag_list is not None else None
-            points, _ = point_cloud_to_xyz_image(point_cloud, H=H, W=W, fov_down=fov_down, fov_up=fov_up, is_sorted=self.is_sorted, limited_view=self.limited_view, tag=tag)
+            points, _ = point_cloud_to_xyz_image(point_cloud, H=H, W=W, fov_down=fov_down, fov_up=fov_up, is_sorted=self.is_sorted, limited_view=self.limited_view, tag=tag, dataset_name=self.name)
             
         out = {}
         out["points"] = points[..., :3]
         if "reflectance" in self.modality:
-            out["reflectance"] = points[..., [3]]/255.0 if self.name == 'semanticPOSS' else points[..., [3]]
+            out["reflectance"] = points[..., [3]]/255.0 if self.name == 'semanticPOSS' or self.name == 'wads' else points[..., [3]]
         if "label" in self.modality:
             out["label"] = points[..., [4]] / (10.0 if self.name == 'semanticPOSS' else 19.0) if self.norm_label else points[..., [4]]
             # if self.name == 'carla' :
@@ -272,3 +269,4 @@ class  KITTIOdometry(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.datalist)
+        

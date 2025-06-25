@@ -48,6 +48,19 @@ labelmap = {
     259: 5,  # "moving-other"-vehicle to "other-vehicle" ----------------mapped
 }
 
+wads_sensor_elevation = np.array([ 0.2590417 ,  0.19184671,  0.13995804,  0.08756319,  0.05235988,
+        0.03469716,  0.031765  ,  0.02876303,  0.02586578,  0.02288126,
+        0.01996656,  0.01698205,  0.01406736,  0.01108284,  0.00816814,
+        0.00518363,  0.00225147, -0.00069813, -0.00364773, -0.00657989,
+       -0.0095644 , -0.0124791 , -0.01544616, -0.01837831, -0.02136283,
+       -0.02427752, -0.02726203, -0.03015927, -0.03316123, -0.03609344,
+       -0.03906043, -0.0419752 , -0.0449597 , -0.047822  , -0.05084138,
+       -0.0537562 , -0.05672315, -0.05960306, -0.06262244, -0.06548472,
+       -0.0684867 , -0.07138395, -0.07436848, -0.07723089, -0.08025026,
+       -0.08307766, -0.0860796 , -0.08895943, -0.09196142, -0.09478885,
+       -0.09782571, -0.1006356 , -0.10363769, -0.10648251, -0.12397084,
+       -0.14135434, -0.15882494, -0.17601645, -0.19324297, -0.21024239,
+       -0.22713704, -0.2438223 , -0.33037347, -0.4352329 ], dtype=np.float32)
 # @numba.jit
 def scatter(arrary, index, value):
     for (h, w), v in zip(index, value):
@@ -64,7 +77,7 @@ def projection(source, grid, order, H, W):
     return proj
 
 
-def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, limited_view=False, tag=None):
+def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, is_sorted=True, limited_view=False, tag=None, dataset_name=None):
     if tag is not None:
         C = points.shape[1]
         proj = np.zeros((H * W, C), dtype=np.float32)
@@ -78,12 +91,15 @@ def point_cloud_to_xyz_image(points, H=64, W=2048, fov_up=3.0, fov_down=-25.0, i
     depth = np.linalg.norm(xyz, ord=2, axis=1)
     order = np.argsort(-depth)
     if not is_sorted:
-        fov_up = fov_up / 180.0 * np.pi      # field of view up in rad
-        fov_down = fov_down/ 180.0 * np.pi  # field of view down in rad
-        fov = abs(fov_down) + abs(fov_up)
         pitch = np.arcsin(z / depth)
-        grid_h = 1.0 - (pitch + abs(fov_down)) / fov
-        grid_h = np.clip(np.round(grid_h * H), 0, H-1)
+        if dataset_name == 'wads':
+            grid_h = np.argmin(np.abs(pitch[:, None] - wads_sensor_elevation), axis=1)
+        else:
+            fov_up = fov_up / 180.0 * np.pi      # field of view up in rad
+            fov_down = fov_down/ 180.0 * np.pi  # field of view down in rad
+            fov = abs(fov_down) + abs(fov_up)
+            grid_h = 1.0 - (pitch + abs(fov_down)) / fov
+            grid_h = np.clip(np.round(grid_h * H), 0, H-1)
     else:
         # the i-th quadrant
         # suppose the points are ordered counterclockwise

@@ -4,7 +4,7 @@
 import torch.nn as nn
 from collections import OrderedDict
 import torch.nn.functional as F
-
+import torch
 
 class BasicBlock(nn.Module):
   def __init__(self, inplanes, planes, bn_d=0.1):
@@ -57,7 +57,7 @@ class Backbone(nn.Module):
     self.OS = params["OS"]
     self.layers = params["extra"]["layers"]
     print("Using DarknetNet" + str(self.layers) + " Backbone")
-
+    self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # input depth calc
     self.input_depth = 0
     self.input_idxs = []
@@ -71,7 +71,7 @@ class Backbone(nn.Module):
       self.input_depth += 1
       self.input_idxs.append(4)
     print("Depth of backbone input = ", self.input_depth)
-
+    self.input_idxs = torch.tensor(self.input_idxs).to(self.device)
     # stride play
     self.strides = [2, 2, 2, 2, 2]
     # check current stride

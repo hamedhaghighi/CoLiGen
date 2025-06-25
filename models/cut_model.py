@@ -27,7 +27,7 @@ class CUTModel(BaseModel):
             self.model_names = ['G', 'D']
         else:
             self.model_names = ['G']
-        
+        self.dataset_name = opt.dataset.dataset_B.name
         self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G']
         self.nce_layers = [int(i) for i in opt_m.nce_layers.split(',')]
         if self.opt.model.nce_idt and self.opt.model.lambda_NCE and self.isTrain:
@@ -72,6 +72,7 @@ class CUTModel(BaseModel):
             self.schedulers = []
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
+            self.step = 0
     
     def set_seg_model(self, model):
         self.seg_model = model
@@ -113,11 +114,15 @@ class CUTModel(BaseModel):
         self.real_A_mod_B = cat_modality(data_A, self.opt.model.modality_B)
         self.data_A = data_A
         self.data_B = data_B
-
+        if self.dataset_name == 'wads':
+            self.not_falling_snow = (self.cond_B != 20).float() # 20 is the class of falling snow#
+            self.real_A = self.real_A * self.not_falling_snow + self.real_B * (1 - self.not_falling_snow)
+            self.real_inv = self.real_inv * self.not_falling_snow + self.real_B_inv * (1 - self.not_falling_snow)
+            self.real_reflectance = self.real_reflectance * self.not_falling_snow + self.real_B_reflectance * (1 - self.not_falling_snow)
 
     def forward(self):
         self.real = torch.cat((self.real_A, self.real_B_mod_A), dim=0) if self.opt.model.nce_idt and self.isTrain else self.real_A
-        if self.cond_A is not None:
+        if self.cond_A is not None and self.dataset_name != 'wads':
             self.cond = torch.cat((self.cond_A, self.cond_B), dim=0) if self.opt.model.nce_idt and self.isTrain else self.cond_A
         else:
             self.cond = None
@@ -154,16 +159,21 @@ class CUTModel(BaseModel):
         # adversariasl loss
         fake_B = self.fake_B
 
-        if self.opt.model.lambda_GAN > 0.0:
+        if self.opt.model.lambda_GAN > 0.0:  
             pred_fake = self.netD(fake_B)
             self.loss_G_GAN = self.criterionGAN(pred_fake, True).mean() * self.opt.model.lambda_GAN
         else:
             self.loss_G_GAN = 0.0
 
         self.loss_NCE_pix, self.loss_NCE_feat, self.loss_NCE_bd = 0.0, 0.0, 0.0
-
         if self.opt.model.lambda_NCE > 0.0:
+            # if self.dataset_name == 'wads':
+            #     src_tensor = self.real_A * self.not_falling_snow + -1 * torch.ones_like(self.real_A) * (1 - self.not_falling_snow)
+            #     trg_tesnsor = self.fake_B * self.not_falling_snow + -1 * torch.ones_like(self.fake_B) * (1 - self.not_falling_snow)
+            #     self.loss_NCE_pix = self.calculate_NCE_loss(src_tensor, trg_tesnsor)
+            # else:
             self.loss_NCE_pix = self.calculate_NCE_loss(self.real_A, self.fake_B)
+
         if self.opt.model.lambda_NCE_feat > 0.0:
             src_vol = prepare_data_for_seg(self.data_A, self.lidar_A)
             tgt_vol = prepare_synth_for_seg(self, self.lidar_B)
@@ -191,6 +201,7 @@ class CUTModel(BaseModel):
         # forward
         self.forward()
         # update D
+        # if self.step % 5 == 0:
         self.set_requires_grad(self.netD, True)
         self.optimizer_D.zero_grad()
         self.backward_D()
@@ -208,6 +219,7 @@ class CUTModel(BaseModel):
             self.optimizer_F.step()
         if self.opt.model.lambda_NCE_feat > 0.0:
             self.optimizer_F_feat.step()
+        self.step = self.step + 1
 
     def calculate_NCE_loss(self, src, tgt):
         n_layers = len(self.nce_layers)

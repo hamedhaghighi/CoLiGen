@@ -26,7 +26,8 @@ class SemanticKitti(Dataset):
                learning_map_inv,    # inverse of previous (recover labels)
                sensor,              # sensor to parse scans from
                max_points=150000,   # max number of points present in dataset
-               gt=True):            # send ground truth?
+               gt=True,
+               dataset_name=None):            # send ground truth?
     # save deats
     self.root = os.path.join(root, "sequences")
     self.sequences = sequences
@@ -43,6 +44,7 @@ class SemanticKitti(Dataset):
     self.sensor_fov_down = sensor["fov_down"]
     self.max_points = max_points
     self.gt = gt
+    self.dataset_name = dataset_name
 
     # get number of classes (can't be len(self.learning_map) because there
     # are multiple repeated entries, so the number that matters is how many
@@ -83,16 +85,14 @@ class SemanticKitti(Dataset):
       # get paths for each
       scan_path = os.path.join(self.root, seq, "velodyne")
       label_path = os.path.join(self.root, seq, "labels")
-
       # get files
       scan_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
           os.path.expanduser(scan_path)) for f in fn if is_scan(f)]
       label_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
           os.path.expanduser(label_path)) for f in fn if is_label(f)]
-
       # check all scans have labels
       if self.gt:
-        assert(len(scan_files) == len(label_files))
+        assert(len(scan_files) == len(label_files)), seq
 
       # extend list
       self.scan_files.extend(scan_files)
@@ -118,13 +118,15 @@ class SemanticKitti(Dataset):
                           H=self.sensor_img_H,
                           W=self.sensor_img_W,
                           fov_up=self.sensor_fov_up,
-                          fov_down=self.sensor_fov_down)
+                          fov_down=self.sensor_fov_down,
+                          dataset_name=self.dataset_name)
     else:
       scan = LaserScan(project=True,
                        H=self.sensor_img_H,
                        W=self.sensor_img_W,
                        fov_up=self.sensor_fov_up,
-                       fov_down=self.sensor_fov_down)
+                       fov_down=self.sensor_fov_down,
+                       dataset_name=self.dataset_name)
 
     # open and obtain scan
     scan.open_scan(scan_file)
@@ -227,7 +229,8 @@ class Parser():
                batch_size,        # batch size for train and val
                workers,           # threads to load data
                gt=True,           # get gt?
-               shuffle_train=True):  # shuffle training set?
+               shuffle_train=True,
+               dataset_name=None):  # shuffle training set?
     super(Parser, self).__init__()
 
     # if I am training, get the dataset
@@ -245,7 +248,7 @@ class Parser():
     self.workers = workers
     self.gt = gt
     self.shuffle_train = shuffle_train
-
+    self.dataset_name = dataset_name
     # number of classes that matters is the one for xentropy
     self.nclasses = len(self.learning_map_inv)
 
@@ -258,7 +261,8 @@ class Parser():
                                        learning_map_inv=self.learning_map_inv,
                                        sensor=self.sensor,
                                        max_points=max_points,
-                                       gt=self.gt)
+                                       gt=self.gt,
+                                       dataset_name=dataset_name)
 
     self.trainloader = torch.utils.data.DataLoader(self.train_dataset,
                                                    batch_size=self.batch_size,
@@ -277,7 +281,8 @@ class Parser():
                                        learning_map_inv=self.learning_map_inv,
                                        sensor=self.sensor,
                                        max_points=max_points,
-                                       gt=self.gt)
+                                       gt=self.gt,
+                                       dataset_name=dataset_name)
 
     self.validloader = torch.utils.data.DataLoader(self.valid_dataset,
                                                    batch_size=self.batch_size,
@@ -297,7 +302,8 @@ class Parser():
                                         learning_map_inv=self.learning_map_inv,
                                         sensor=self.sensor,
                                         max_points=max_points,
-                                        gt=False)
+                                        gt=False,
+                                        dataset_name=dataset_name)
 
       self.testloader = torch.utils.data.DataLoader(self.test_dataset,
                                                     batch_size=self.batch_size,
